@@ -1,0 +1,60 @@
+/* All user-visible strings. Extracted at build time via `xcrun extractLocStrings` or updated manually.
+   Keys here match the values used in `String(localized:)` in Swift source files — this file
+   exists so future translations (e.g. zh-Hans.lproj) can reference them. */
+
+"Country only" = "Country only";
+"Region only" = "Region only";
+"Country and region" = "Country and region";
+"Text (e.g. US)" = "Text (e.g. US)";
+"Flag (e.g. 🇺🇸)" = "Flag (e.g. 🇺🇸)";
+
+"Every 30 seconds" = "Every 30 seconds";
+"Every minute" = "Every minute";
+"Every 5 minutes" = "Every 5 minutes";
+"Every 10 minutes" = "Every 10 minutes";
+"Every 30 minutes" = "Every 30 minutes";
+"Every hour" = "Every hour";
+
+"Refresh" = "Refresh";
+"Refresh now" = "Refresh now";
+"Settings" = "Settings";
+"Settings…" = "Settings…";
+"Quit IP Guide" = "Quit IP Guide";
+
+"General" = "General";
+"Appearance" = "Appearance";
+"About" = "About";
+"Launch at login" = "Launch at login";
+"Move IP Guide to /Applications to enable this." = "Move IP Guide to /Applications to enable this.";
+"What to show" = "What to show";
+"Status bar shows" = "Status bar shows";
+"Country style" = "Country style";
+"Country display" = "Country display";
+"Preview" = "Preview";
+"Menu bar:" = "Menu bar:";
+
+"Copy" = "Copy";
+"Copy IP address" = "Copy IP address";
+"Network" = "Network";
+"CIDR" = "CIDR";
+"ASN" = "ASN";
+"Org" = "Org";
+"RIR" = "RIR";
+"Coords" = "Coords";
+"Timezone" = "Timezone";
+
+"Looking up your IP…" = "Looking up your IP…";
+"Loading…" = "Loading…";
+"Updated %@" = "Updated %@";
+"Data may be out of date" = "Data may be out of date";
+"Can't reach ip.guide" = "Can't reach ip.guide";
+"Try again" = "Try again";
+"Data provided by ip.guide" = "Data provided by ip.guide";
+"Visit ip.guide" = "Visit ip.guide";
+
+"No network connection." = "No network connection.";
+"The request to ip.guide timed out." = "The request to ip.guide timed out.";
+"ip.guide returned an error (%d)." = "ip.guide returned an error (%d).";
+"Got an unexpected response from ip.guide." = "Got an unexpected response from ip.guide.";
+"Network error: %@." = "Network error: %@.";
+"Request cancelled." = "Request cancelled.";

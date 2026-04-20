@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "flag_MG.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

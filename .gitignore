@@ -46,3 +46,7 @@ ExportOptions.plist
 # Local tool state
 .claude/
 
+# Release staging
+release/
+build-release/
+

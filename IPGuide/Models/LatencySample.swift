@@ -18,12 +18,12 @@ enum LatencyBucket: Sendable {
     case good           // < greenMaxMs
     case moderate       // green..<yellow
     case slow           // yellow..<orange
-    case poor           // >= orange
-    case failed         // timeout / error
+    case poor           // >= orange, OR timeout / network error
 
     static func classify(_ sample: LatencySample?, thresholds: LatencyThresholds) -> LatencyBucket {
         guard let sample else { return .empty }
-        guard let ms = sample.latencyMs else { return .failed }
+        // Timeout / error collapses into the worst severity bucket (red).
+        guard let ms = sample.latencyMs else { return .poor }
         if ms < thresholds.greenMaxMs { return .good }
         if ms < thresholds.yellowMaxMs { return .moderate }
         if ms < thresholds.orangeMaxMs { return .slow }
@@ -37,9 +37,9 @@ struct LatencyThresholds: Sendable, Equatable {
     let orangeMaxMs: Double
 
     static let `default` = LatencyThresholds(
-        greenMaxMs: 150,
-        yellowMaxMs: 500,
-        orangeMaxMs: 1000
+        greenMaxMs: 500,
+        yellowMaxMs: 1000,
+        orangeMaxMs: 2000
     )
 }
 

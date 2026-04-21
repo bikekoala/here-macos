@@ -155,14 +155,12 @@ struct LatencyCard: View {
     private func color(for bucket: LatencyBucket) -> Color {
         switch bucket {
         case .empty:    Color.gray.opacity(0.28)
-        // Severity gradient — standard warm-hue progression:
+        // Severity gradient — standard warm-hue progression.
+        // Timeout / network error is folded into `.poor` (red).
         case .good:     .green
         case .moderate: .yellow
         case .slow:     .orange
         case .poor:     .red
-        // Qualitatively different (no response at all) — deliberately off the
-        // severity gradient so it reads as "another kind of bad".
-        case .failed:   .purple
         }
     }
 

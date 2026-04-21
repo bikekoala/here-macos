@@ -47,9 +47,14 @@
 "Target" = "Target";
 "Interval" = "Interval";
 "Slots" = "Slots";
-"Use custom server" = "Use custom server";
-"URL must support GET /__down?bytes=N and POST /__up (Cloudflare speed test API). Leaves blank or invalid → falls back to Cloudflare." = "URL must support GET /__down?bytes=N and POST /__up (Cloudflare speed test API). Leaves blank or invalid → falls back to Cloudflare.";
-"Uses Cloudflare's speed endpoint. Turn on to point at a different server when Cloudflare is unreachable." = "Uses Cloudflare's speed endpoint. Turn on to point at a different server when Cloudflare is unreachable.";
+"Source" = "Source";
+"URL" = "URL";
+"Cachefly (100 MB)" = "Cachefly (100 MB)";
+"Cloudflare (100 MB)" = "Cloudflare (100 MB)";
+"Custom URL" = "Custom URL";
+"Downloads a 100 MB test file from Cachefly's CDN. Widest global reach; default." = "Downloads a 100 MB test file from Cachefly's CDN. Widest global reach; default.";
+"Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host." = "Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host.";
+"Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs fall back to Cachefly." = "Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs fall back to Cachefly.";
 
 /* Popover — Location card */
 "Copy" = "Copy";
@@ -90,7 +95,7 @@
 "Retest" = "Retest";
 "Testing…" = "Testing…";
 "Download" = "Download";
-"Upload" = "Upload";
+"bad URL" = "bad URL";
 "no internet" = "no internet";
 "connection lost" = "connection lost";
 "timed out" = "timed out";

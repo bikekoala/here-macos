@@ -46,19 +46,18 @@ final class SettingsStore {
         }
     }
 
-    /// When off (the default), Throughput hits Cloudflare's speed endpoint.
-    /// Escape hatch for networks where `speed.cloudflare.com` is blocked
-    /// (SNI filtering, geographic reachability issues, overzealous proxy
-    /// rules, …).
-    var throughputUseCustomEndpoint: Bool {
-        didSet { UserDefaults.standard.set(throughputUseCustomEndpoint, forKey: Keys.throughputUseCustomEndpoint) }
+    /// Which download source the Throughput card hits. Cachefly is default
+    /// (wide global footprint, rarely filtered); users on networks that
+    /// prefer Cloudflare or need a self-hosted server can switch here.
+    var throughputEndpoint: ThroughputEndpoint {
+        didSet { UserDefaults.standard.set(throughputEndpoint.rawValue, forKey: Keys.throughputEndpoint) }
     }
 
-    /// Base URL of a Cloudflare-speedtest-compatible server. Must support
-    /// `GET <base>/__down?bytes=N` and `POST <base>/__up`. Only read when
-    /// `throughputUseCustomEndpoint` is true; otherwise ignored.
-    var throughputCustomEndpoint: String {
-        didSet { UserDefaults.standard.set(throughputCustomEndpoint, forKey: Keys.throughputCustomEndpoint) }
+    /// HTTPS URL of the file used when `throughputEndpoint == .custom`.
+    /// Ignored otherwise. Any resource that responds 200 OK to a GET and
+    /// delivers ≥ a few MB of body works.
+    var throughputCustomURL: String {
+        didSet { UserDefaults.standard.set(throughputCustomURL, forKey: Keys.throughputCustomURL) }
     }
 
     var refreshInterval: RefreshInterval {
@@ -101,8 +100,28 @@ final class SettingsStore {
             .compactMap(PopoverModule.init(rawValue:))
         self.popoverModuleOrder = Self.mergeWithDefaults(savedOrder)
 
-        self.throughputUseCustomEndpoint = defaults.bool(forKey: Keys.throughputUseCustomEndpoint)
-        self.throughputCustomEndpoint = defaults.string(forKey: Keys.throughputCustomEndpoint) ?? ""
+        // Throughput endpoint + custom URL, with migration from the
+        // v0.20.0 `throughputUseCustomEndpoint` + `throughputCustomEndpoint`
+        // pair. If the new key is set, use it directly. Otherwise, if the
+        // legacy toggle was on, map to `.custom` carrying the legacy URL;
+        // else fall through to the default `.cachefly`.
+        let legacyUseCustom = defaults.bool(forKey: Keys.legacyThroughputUseCustomEndpoint)
+        let legacyCustomURL = defaults.string(forKey: Keys.legacyThroughputCustomEndpoint) ?? ""
+
+        if let raw = defaults.string(forKey: Keys.throughputEndpoint),
+           let endpoint = ThroughputEndpoint(rawValue: raw) {
+            self.throughputEndpoint = endpoint
+        } else if legacyUseCustom, !legacyCustomURL.isEmpty {
+            self.throughputEndpoint = .custom
+        } else {
+            self.throughputEndpoint = .cachefly
+        }
+
+        if let stored = defaults.string(forKey: Keys.throughputCustomURL) {
+            self.throughputCustomURL = stored
+        } else {
+            self.throughputCustomURL = legacyCustomURL
+        }
 
         // `didSet` doesn't fire during init, so any values we coerced above
         // still sit in UserDefaults in their pre-migration form and would
@@ -137,7 +156,10 @@ final class SettingsStore {
         static let latencyIntervalSeconds = "latency.intervalSeconds"
         static let latencySlotCount = "latency.slotCount"
         static let popoverModuleOrder = "popover.moduleOrder"
-        static let throughputUseCustomEndpoint = "throughput.useCustomEndpoint"
-        static let throughputCustomEndpoint = "throughput.customEndpoint"
+        static let throughputEndpoint = "throughput.endpoint"
+        static let throughputCustomURL = "throughput.customURL"
+        // Legacy v0.20.0 keys — read once on launch for migration, never written.
+        static let legacyThroughputUseCustomEndpoint = "throughput.useCustomEndpoint"
+        static let legacyThroughputCustomEndpoint = "throughput.customEndpoint"
     }
 }

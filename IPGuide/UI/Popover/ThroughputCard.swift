@@ -1,24 +1,26 @@
 import SwiftUI
 
-/// On-demand download + upload speed test card.
+/// On-demand download speed test card.
 ///
 /// Layout:
 /// ```
 /// ┌─────────────────────────────────────────┐
 /// │ THROUGHPUT               Tested 3m ago   │
 /// │                                          │
-/// │   ↓ 85.2 Mbps      ↑ 12.4 Mbps           │
-/// │   ═══════          ═══════               │
-/// │                                          │
+/// │   ↓ 85.2 Mbps                            │
+/// │   ═══════                                │
 /// │                             [ ↻ Retest ] │
 /// └─────────────────────────────────────────┘
 /// ```
-/// While a test is running, both blocks blank to "…" and fill in one at a
-/// time as each direction's measurement lands. The active block's number
-/// ticks upward with the rolling Mbps estimate from `ThroughputService`
-/// (`liveMbps` on the `.probing` state); its progress bar is time-linear
-/// over the estimated duration. The final Mbps replaces the rolling value
-/// on completion.
+/// While a test is running, the number blanks to "…" and ticks upward
+/// with the rolling Mbps estimate from `ThroughputService` (`liveMbps` on
+/// the `.probing` state). The progress bar reflects real transfer progress
+/// (bytes received / Content-Length) — when it hits 1.0 the transfer has
+/// genuinely finished. The final Mbps replaces the rolling value on
+/// completion.
+///
+/// Source selection (Cachefly default / Cloudflare / Custom URL) lives in
+/// Settings → Modules → Throughput.
 struct ThroughputCard: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(SettingsStore.self) private var settings
@@ -29,7 +31,7 @@ struct ThroughputCard: View {
         CardContainer {
             VStack(alignment: .leading, spacing: 10) {
                 header
-                speedRow
+                speedBlock
                 footer
             }
         }
@@ -62,26 +64,13 @@ struct ThroughputCard: View {
         }
     }
 
-    // MARK: Speed row
+    // MARK: Speed block
 
-    private var speedRow: some View {
-        HStack(alignment: .top, spacing: 20) {
-            speedBlock(
-                label: String(localized: "↓"),
-                direction: .download
-            )
-            speedBlock(
-                label: String(localized: "↑"),
-                direction: .upload
-            )
-        }
-    }
-
-    private func speedBlock(label: String, direction: ThroughputStatus.Direction) -> some View {
-        let (numericText, progress, isActive) = stateForDirection(direction)
+    private var speedBlock: some View {
+        let (numericText, progress, isActive) = displayState()
         return VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(label)
+                Text("↓")
                     .foregroundStyle(isActive ? .primary : .secondary)
                 Text(numericText)
                     .fontWeight(.semibold)
@@ -108,7 +97,6 @@ struct ThroughputCard: View {
             }
             .frame(height: 3)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Footer
@@ -117,8 +105,8 @@ struct ThroughputCard: View {
         HStack {
             Spacer()
             Button {
-                let baseURL = resolvedBaseURL()
-                Task { await environment.throughputService.runTest(baseURL: baseURL) }
+                let url = resolvedURL()
+                Task { await environment.throughputService.runTest(url: url) }
             } label: {
                 if status.isRunning {
                     HStack(spacing: 4) {
@@ -145,77 +133,58 @@ struct ThroughputCard: View {
 
     // MARK: Helpers
 
-    /// Derive the display string + progress fraction + "is this the direction
-    /// currently being measured?" for one arrow.
+    /// Derive the display tuple for the current status.
     ///
-    /// The contract while probing: show `"…"` for any direction whose fresh
-    /// value hasn't landed yet. Stale values from a previous run are NOT
-    /// shown during a new test — that's confusing UX ("wait, is that the
-    /// new number already?"). The user sees each block fill in as its
-    /// measurement completes.
-    private func stateForDirection(
-        _ direction: ThroughputStatus.Direction
-    ) -> (text: String, progress: Double, isActive: Bool) {
+    /// `.idle` / `.failed`  → last known Mbps (or "—"), bar full or empty.
+    /// `.probing`           → "…" until the first live reading lands, then
+    ///                        the rolling Mbps number; bar tracks real
+    ///                        transfer progress.
+    private func displayState() -> (text: String, progress: Double, isActive: Bool) {
         switch status {
         case .idle(let last), .failed(_, let last):
-            let mbps = directionValue(from: last, direction: direction)
-            return (format(mbps), mbps == nil ? 0 : 1, false)
-
-        case .probing(let phase, let downloadSoFar, let liveMbps, let liveProgress):
-            if phase == direction {
-                // Active direction: `liveProgress` is REAL transfer progress
-                // (bytes received / expected for download; completed chunks
-                // / total chunks for upload). When the bar hits 1.0 the
-                // transfer has genuinely finished — no more "bar is at 100 %
-                // but we're still waiting" weirdness. `liveMbps` drives the
-                // number so the user sees it tick upwards as data moves.
-                let text: String
-                if let live = liveMbps {
-                    text = format(live)
-                } else {
-                    text = "…"
-                }
-                return (text, liveProgress, true)
+            let mbps = last?.downloadMbps
+            let text: String
+            if let mbps {
+                text = format(mbps)
+            } else {
+                text = "—"
             }
-            if direction == .download, phase == .upload {
-                // Download phase finished; `downloadSoFar` holds the just-
-                // measured value. Bar is 100%, number is the fresh reading.
-                return (format(downloadSoFar), 1.0, false)
+            return (text, mbps == nil ? 0 : 1, false)
+
+        case .probing(let liveMbps, let liveProgress):
+            let text: String
+            if let live = liveMbps {
+                text = format(live)
+            } else {
+                text = "…"
             }
-            // Upload block during download phase: not started yet. Blank.
-            return ("…", 0, false)
+            return (text, liveProgress, true)
         }
     }
 
-    private func directionValue(
-        from result: ThroughputResult?,
-        direction: ThroughputStatus.Direction
-    ) -> Double? {
-        guard let result else { return nil }
-        return direction == .download ? result.downloadMbps : result.uploadMbps
+    /// Pick the URL for the current test from the selected endpoint. For
+    /// a custom URL that's blank or doesn't parse as https, quietly fall
+    /// back to the default preset (Cachefly) — the failure would surface
+    /// as a connection error in the failed state otherwise, which is
+    /// confusing when the user just hasn't typed a URL yet.
+    private func resolvedURL() -> URL {
+        switch settings.throughputEndpoint {
+        case .cachefly, .cloudflare:
+            return settings.throughputEndpoint.presetURL
+                ?? ThroughputEndpoint.cachefly.presetURL!
+        case .custom:
+            let trimmed = settings.throughputCustomURL
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty,
+               let url = URL(string: trimmed),
+               url.scheme?.lowercased() == "https" {
+                return url
+            }
+            return ThroughputEndpoint.cachefly.presetURL!
+        }
     }
 
-    /// Pick between the Cloudflare default and a user-provided custom URL.
-    /// Silently falls back to Cloudflare when the toggle is off, the URL
-    /// field is blank, or the string doesn't parse as https — the failure
-    /// would surface as a connection error in the failed state anyway.
-    private func resolvedBaseURL() -> URL {
-        guard settings.throughputUseCustomEndpoint else {
-            return ThroughputService.defaultBaseURL
-        }
-        let trimmed = settings.throughputCustomEndpoint
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let url = URL(string: trimmed),
-              url.scheme?.lowercased() == "https"
-        else {
-            return ThroughputService.defaultBaseURL
-        }
-        return url
-    }
-
-    private func format(_ mbps: Double?) -> String {
-        guard let mbps else { return "—" }
+    private func format(_ mbps: Double) -> String {
         if mbps >= 100 { return String(format: "%.0f", mbps) }
         return String(format: "%.1f", mbps)
     }
@@ -233,8 +202,6 @@ struct ThroughputCard: View {
         }
         return String(format: String(localized: "Tested %dd ago"), secs / 86_400)
     }
-
-    // MARK: Observation
 
     private func observe() async {
         for await next in environment.throughputService.stream() {

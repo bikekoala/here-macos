@@ -45,35 +45,44 @@ struct ModulesSettingsView: View {
             }
 
             Section {
-                Toggle(
-                    String(localized: "Use custom server"),
-                    isOn: $settings.throughputUseCustomEndpoint
-                )
+                Picker(String(localized: "Source"), selection: $settings.throughputEndpoint) {
+                    ForEach(ThroughputEndpoint.allCases) { endpoint in
+                        Text(endpoint.label).tag(endpoint)
+                    }
+                }
 
-                if settings.throughputUseCustomEndpoint {
-                    TextField(
-                        "https://speed.cloudflare.com",
-                        text: $settings.throughputCustomEndpoint
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .textContentType(.URL)
-                    .autocorrectionDisabled(true)
+                if settings.throughputEndpoint == .custom {
+                    LabeledContent {
+                        TextField(
+                            "https://example.com/100mb.bin",
+                            text: $settings.throughputCustomURL
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled(true)
+                    } label: {
+                        Text(String(localized: "URL"))
+                    }
                 }
             } header: {
                 Text(String(localized: "Throughput"))
             } footer: {
-                if settings.throughputUseCustomEndpoint {
-                    Text(String(localized: "URL must support GET /__down?bytes=N and POST /__up (Cloudflare speed test API). Leaves blank or invalid → falls back to Cloudflare."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(String(localized: "Uses Cloudflare's speed endpoint. Turn on to point at a different server when Cloudflare is unreachable."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(throughputFooterText())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func throughputFooterText() -> String {
+        switch settings.throughputEndpoint {
+        case .cachefly:
+            return String(localized: "Downloads a 100 MB test file from Cachefly's CDN. Widest global reach; default.")
+        case .cloudflare:
+            return String(localized: "Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host.")
+        case .custom:
+            return String(localized: "Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs fall back to Cachefly.")
+        }
     }
 
     @ViewBuilder

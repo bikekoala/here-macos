@@ -15,7 +15,11 @@ struct HistoryCard: View {
     @State private var events: [IPChangeEvent] = []
     @State private var selectedID: UUID?
 
-    private let maxChips = 4
+    // Fill the chain with as many chips as fit comfortably in the popover
+    // width. Older events beyond this cap are silently dropped from the
+    // visible chain (no "+N more" indicator) — the newest-on-right anchor
+    // keeps the current egress always visible.
+    private let maxChips = 6
 
     var body: some View {
         CardContainer {
@@ -68,18 +72,11 @@ struct HistoryCard: View {
         // Anchor the chain to the RIGHT edge of the card — newest chip sits
         // at the far right (matches the Latency bar, where the most recent
         // sample is the rightmost cell). As you read leftward, you travel
-        // back in time; "+N more" is the last visible "…and further" marker
-        // before the clipped older tail.
+        // back in time. Events older than `maxChips` are quietly dropped;
+        // the total `N changes` counter in the header still reflects them.
         let displayed = Array(events.suffix(maxChips))
-        let hiddenCount = max(0, events.count - displayed.count)
         return HStack(spacing: 6) {
             Spacer(minLength: 0)
-            if hiddenCount > 0 {
-                Text("+\(hiddenCount)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.trailing, 2)
-            }
             ForEach(Array(displayed.enumerated()), id: \.element.id) { index, event in
                 chip(for: event, isCurrent: index == displayed.count - 1)
                 if index < displayed.count - 1 {

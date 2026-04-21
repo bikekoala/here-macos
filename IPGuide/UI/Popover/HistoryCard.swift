@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 
+extension VerticalAlignment {
+    /// Custom alignment used by the history chain so inter-chip arrows line
+    /// up with the vertical center of the country flag, not with the chip's
+    /// overall center (which sits lower because of the duration label
+    /// underneath). Set on the flag via `.alignmentGuide(.flagMidline)` and
+    /// consumed by the parent HStack via `HStack(alignment: .flagMidline)`.
+    private enum FlagMidline: AlignmentID {
+        static func defaultValue(in d: ViewDimensions) -> CGFloat {
+            d[VerticalAlignment.center]
+        }
+    }
+
+    static let flagMidline = VerticalAlignment(FlagMidline.self)
+}
+
 /// Horizontal "flag chain" of recent egress-IP changes:
 ///
 ///     🇯🇵 →  🇺🇸 →  🇸🇬 (now)
@@ -85,7 +100,7 @@ struct HistoryCard: View {
         // events beyond `maxChips` get dropped from the visible chain,
         // with the header's `N changes` counter reflecting the true total.
         let displayed = Array(events.suffix(maxChips))
-        return HStack(spacing: 0) {
+        return HStack(alignment: .flagMidline, spacing: 0) {
             ForEach(Array(displayed.enumerated()), id: \.element.id) { index, event in
                 if index > 0 {
                     Spacer(minLength: 4)
@@ -117,6 +132,11 @@ struct HistoryCard: View {
                             .strokeBorder(.separator.opacity(0.4), lineWidth: 0.5)
                     )
                     .opacity(isCurrent ? 1 : 0.85)
+                    // Anchor the custom `flagMidline` alignment to the flag's
+                    // own vertical center, so the HStack pulls inter-chip
+                    // arrows up to the flag row instead of the chip's overall
+                    // midpoint (which is lower because of the label below).
+                    .alignmentGuide(.flagMidline) { d in d[VerticalAlignment.center] }
                 Text(timeAgoLabel(for: event))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(isCurrent ? .primary : .secondary)

@@ -16,11 +16,6 @@ import Foundation
 /// report the running aggregate after every chunk.
 actor ThroughputService {
     private let downloadBytes: Int
-    private let estimatedDownloadDuration: TimeInterval = 4.0
-    /// Longer than download because upload is split into sequential chunks
-    /// (see `probeUpload` for why). At 2-5 Mbps typical VPN upload this lands
-    /// around 8-20 s; progress bar just sits at 100 % if the pipe is slower.
-    private let estimatedUploadDuration: TimeInterval = 10.0
 
     /// Upload is split into N chunks so the live number reflects real
     /// throughput samples (each chunk's end-to-end timing). See the note in
@@ -69,13 +64,12 @@ actor ThroughputService {
     private func performTest() async {
         let priorResult = state.lastResult
 
-        // Download phase — both blocks start blank.
+        // Download phase — both blocks start blank, progress at 0.
         state = .probing(
             phase: .download,
-            startedAt: Date(),
-            estimatedDuration: estimatedDownloadDuration,
             completedDownloadMbps: nil,
-            liveMbps: nil
+            liveMbps: nil,
+            liveProgress: 0
         )
         emit()
         let download = await probeDownload()
@@ -90,10 +84,9 @@ actor ThroughputService {
         // ↓ block can flip from "…" to the real number while ↑ measures.
         state = .probing(
             phase: .upload,
-            startedAt: Date(),
-            estimatedDuration: estimatedUploadDuration,
             completedDownloadMbps: downMbps,
-            liveMbps: nil
+            liveMbps: nil,
+            liveProgress: 0
         )
         emit()
         let upload = await probeUpload()
@@ -193,8 +186,11 @@ actor ThroughputService {
 
             // Running aggregate Mbps — each new chunk's sample pulls the
             // number toward the steady-state value rather than replacing it.
+            // Progress bar jumps in `1 / uploadChunkCount` steps as each
+            // chunk's end-to-end timing lands.
             let mbps = Double(totalBytes) * 8 / totalElapsed / 1_000_000
-            applyLiveMbps(mbps)
+            let progress = Double(chunk + 1) / Double(uploadChunkCount)
+            applyLiveProgress(mbps: mbps, progress: progress)
         }
 
         guard totalElapsed > 0 else { return nil }
@@ -204,13 +200,18 @@ actor ThroughputService {
     /// Download probe driver — spins up a `SpeedProbe` (URLSession delegate
     /// that watches `didReceive(data:)`, which is a reliable real-time
     /// throughput signal because bytes arrive from the peer over the wire),
-    /// forwards the live Mbps estimate back into our state, and resolves
-    /// the continuation with the final measured Mbps.
+    /// forwards the live Mbps + byte progress back into our state, and
+    /// resolves the continuation with the final measured Mbps.
     private func runProbe(request: URLRequest) async -> Double? {
-        await withCheckedContinuation { (cont: CheckedContinuation<Double?, Never>) in
+        let totalBytes = downloadBytes
+        return await withCheckedContinuation { (cont: CheckedContinuation<Double?, Never>) in
             let probe = SpeedProbe(
-                onProgress: { [weak self] mbps in
-                    Task { await self?.applyLiveMbps(mbps) }
+                onProgress: { [weak self] mbps, bytes in
+                    // Real byte-based progress: bytes received divided by
+                    // the total we requested from the endpoint. When this
+                    // hits 1.0 the transfer has genuinely arrived.
+                    let progress = min(1.0, max(0.0, Double(bytes) / Double(totalBytes)))
+                    Task { await self?.applyLiveProgress(mbps: mbps, progress: progress) }
                 },
                 onComplete: { finalMbps in
                     cont.resume(returning: finalMbps)
@@ -220,19 +221,18 @@ actor ThroughputService {
         }
     }
 
-    /// Called from `SpeedProbe` callbacks (throttled to ~5 Hz). Updates the
-    /// current `.probing` state with the latest rolling Mbps reading so
-    /// observers can re-render the active speed block.
-    private func applyLiveMbps(_ mbps: Double) {
-        guard case .probing(let phase, let startedAt, let estDur, let downloadDone, _) = state else {
+    /// Called from the per-direction progress path. Updates the current
+    /// `.probing` state with the latest rolling Mbps + transfer progress so
+    /// observers can re-render the active speed block and advance the bar.
+    private func applyLiveProgress(mbps: Double, progress: Double) {
+        guard case .probing(let phase, let downloadDone, _, _) = state else {
             return
         }
         state = .probing(
             phase: phase,
-            startedAt: startedAt,
-            estimatedDuration: estDur,
             completedDownloadMbps: downloadDone,
-            liveMbps: mbps
+            liveMbps: mbps,
+            liveProgress: min(1.0, max(0.0, progress))
         )
         emit()
     }
@@ -323,11 +323,11 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
     private var bytes: Int64 = 0
     private var lastEmit = Date.distantPast
     private var finished = false
-    private let onProgress: @Sendable (Double) -> Void
+    private let onProgress: @Sendable (_ mbps: Double, _ bytes: Int64) -> Void
     private let onComplete: @Sendable (Double?) -> Void
 
     init(
-        onProgress: @escaping @Sendable (Double) -> Void,
+        onProgress: @escaping @Sendable (_ mbps: Double, _ bytes: Int64) -> Void,
         onComplete: @escaping @Sendable (Double?) -> Void
     ) {
         self.onProgress = onProgress
@@ -408,6 +408,7 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
         // Skip the first ~150 ms — TCP/TLS handshake dominates early numbers
         // and they lie about the steady-state throughput.
         guard elapsed > 0.15 else { return }
-        onProgress(Double(bytes) * 8 / elapsed / 1_000_000)
+        let mbps = Double(bytes) * 8 / elapsed / 1_000_000
+        onProgress(mbps, bytes)
     }
 }

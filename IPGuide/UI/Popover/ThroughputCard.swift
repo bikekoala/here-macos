@@ -158,20 +158,21 @@ struct ThroughputCard: View {
             let mbps = directionValue(from: last, direction: direction)
             return (format(mbps), mbps == nil ? 0 : 1, false)
 
-        case .probing(let phase, let startedAt, let estDur, let downloadSoFar, let liveMbps):
+        case .probing(let phase, let downloadSoFar, let liveMbps, let liveProgress):
             if phase == direction {
-                // Active direction: linear time-based pseudo-progress for
-                // the bar; `liveMbps` drives the actual number so the user
-                // sees it tick upwards as bytes transfer.
-                let elapsed = Date().timeIntervalSince(startedAt)
-                let progress = min(1, max(0, elapsed / estDur))
+                // Active direction: `liveProgress` is REAL transfer progress
+                // (bytes received / expected for download; completed chunks
+                // / total chunks for upload). When the bar hits 1.0 the
+                // transfer has genuinely finished — no more "bar is at 100 %
+                // but we're still waiting" weirdness. `liveMbps` drives the
+                // number so the user sees it tick upwards as data moves.
                 let text: String
                 if let live = liveMbps {
                     text = format(live)
                 } else {
                     text = "…"
                 }
-                return (text, progress, true)
+                return (text, liveProgress, true)
             }
             if direction == .download, phase == .upload {
                 // Download phase finished; `downloadSoFar` holds the just-

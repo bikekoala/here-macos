@@ -21,20 +21,22 @@ enum ThroughputStatus: Sendable, Equatable {
 
     /// Probing is in progress.
     /// - `phase` = which direction is currently being measured
-    /// - `startedAt` + `estimatedDuration` drive the progress-bar animation
-    ///   for the active direction
     /// - `completedDownloadMbps` is set to the just-measured download value
     ///   once the download phase finishes, so the UI can flip the download
     ///   block from "…" to the real reading while the upload phase runs
     /// - `liveMbps` is a rolling estimate for the active phase, pushed every
     ///   ~200 ms from the URLSession progress delegate. The UI renders this
     ///   in place of "…" so the number ticks up as bytes transfer.
+    /// - `liveProgress` (0…1) is real transfer progress:
+    ///   - download: bytes received / expected bytes
+    ///   - upload: completed chunks / total chunks
+    ///   The progress bar hitting 1.0 means the transfer actually finished,
+    ///   not an estimated timer running out.
     case probing(
         phase: Direction,
-        startedAt: Date,
-        estimatedDuration: TimeInterval,
         completedDownloadMbps: Double?,
-        liveMbps: Double?
+        liveMbps: Double?,
+        liveProgress: Double
     )
 
     case failed(reason: String, lastResult: ThroughputResult?)

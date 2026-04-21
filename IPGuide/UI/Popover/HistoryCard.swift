@@ -19,7 +19,12 @@ struct HistoryCard: View {
     // width. Older events beyond this cap are silently dropped from the
     // visible chain (no "+N more" indicator) — the newest-on-right anchor
     // keeps the current egress always visible.
-    private let maxChips = 6
+    //
+    // 6 chips turns out to be too tight: the "Nm" label on the leftmost
+    // chip wraps to two lines under HStack compression, making the row
+    // look crooked. 5 chips leaves enough horizontal slack for all chips
+    // to lay out evenly.
+    private let maxChips = 5
 
     var body: some View {
         CardContainer {
@@ -105,9 +110,11 @@ struct HistoryCard: View {
                             .strokeBorder(.separator.opacity(0.4), lineWidth: 0.5)
                     )
                     .opacity(isCurrent ? 1 : 0.85)
-                Text(durationLabel(for: event))
+                Text(timeAgoLabel(for: event))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(isCurrent ? .primary : .secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 3)
@@ -175,18 +182,17 @@ struct HistoryCard: View {
 
     // MARK: Formatters
 
-    /// Human-readable duration for how long we stayed at this event's IP.
-    /// For the most recent event it's "from `at` until now"; for older
-    /// events it's "from this event's `at` until the NEXT event's `at`".
-    private func durationLabel(for event: IPChangeEvent) -> String {
-        guard let index = events.firstIndex(where: { $0.id == event.id }) else { return "" }
-        let endDate: Date
-        if index == events.count - 1 {
-            endDate = Date()
-        } else {
-            endDate = events[index + 1].at
-        }
-        let seconds = max(0, endDate.timeIntervalSince(event.at))
+    /// "Time ago" the event happened, relative to now.
+    ///
+    /// This is the natural reading of a timestamp under a flag: "I was at
+    /// this country 3h ago". Duration-stayed (how long we sat on this IP
+    /// before the next change) reads as a time number but means something
+    /// structurally different — to figure out WHEN an event happened the
+    /// user has to sum all the prior durations, which defeats the purpose
+    /// of a glance-able history. Matches the "Updated N min. ago" label in
+    /// the popover footer.
+    private func timeAgoLabel(for event: IPChangeEvent) -> String {
+        let seconds = max(0, Date().timeIntervalSince(event.at))
         return formatDuration(seconds)
     }
 

@@ -118,39 +118,12 @@ actor ThroughputService {
 
     // MARK: Failure messaging
 
-    /// Translate a URLSession error into a short, glance-able one-line
-    /// reason for the failure pill in the card.
+    /// Use the system's localized description so the user sees the real
+    /// error (e.g. "An SSL error has occurred…", "The request timed out.")
+    /// rather than a one-size-fits-all translation. Runtime diagnostic
+    /// signal beats a tidy pill.
     private static func failureReason(error: Error) -> String {
-        let prefix = String(localized: "Download")
-        let detail: String
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet:
-                detail = String(localized: "no internet")
-            case .networkConnectionLost:
-                detail = String(localized: "connection lost")
-            case .timedOut:
-                detail = String(localized: "timed out")
-            case .cannotFindHost, .dnsLookupFailed:
-                detail = String(localized: "can't reach host")
-            case .cannotConnectToHost:
-                detail = String(localized: "host refused")
-            case .secureConnectionFailed, .serverCertificateUntrusted,
-                 .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
-                 .serverCertificateNotYetValid, .clientCertificateRejected,
-                 .clientCertificateRequired:
-                detail = String(localized: "TLS handshake failed")
-            case .zeroByteResource:
-                detail = String(localized: "empty response")
-            case .badURL, .unsupportedURL:
-                detail = String(localized: "bad URL")
-            default:
-                detail = urlError.localizedDescription
-            }
-        } else {
-            detail = error.localizedDescription
-        }
-        return "\(prefix): \(detail)"
+        error.localizedDescription
     }
 
     // MARK: Persistence

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ModulesSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @FocusState private var customURLFocused: Bool
 
     var body: some View {
         @Bindable var settings = settings
@@ -53,12 +54,14 @@ struct ModulesSettingsView: View {
 
                 if settings.throughputEndpoint == .custom {
                     LabeledContent {
-                        TextField(
-                            "https://example.com/100mb.bin",
-                            text: $settings.throughputCustomURL
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled(true)
+                        TextField("", text: $settings.throughputCustomURL)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled(true)
+                            .focused($customURLFocused)
+                            .frame(maxWidth: .infinity)
+                            .onChange(of: customURLFocused) { _, isFocused in
+                                if !isFocused { normalizeCustomURL() }
+                            }
                     } label: {
                         Text(String(localized: "URL"))
                     }
@@ -72,6 +75,29 @@ struct ModulesSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Normalize the custom URL field on blur:
+    /// - trim whitespace
+    /// - if what's left parses as an `https://` URL, save the trimmed version
+    /// - otherwise (empty, garbage, wrong scheme) clear the field so the user
+    ///   immediately sees that their input didn't stick, and so the test
+    ///   falls back to Cachefly rather than silently pointing at something
+    ///   broken.
+    private func normalizeCustomURL() {
+        let trimmed = settings.throughputCustomURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed),
+           url.scheme?.lowercased() == "https",
+           url.host?.isEmpty == false {
+            if settings.throughputCustomURL != trimmed {
+                settings.throughputCustomURL = trimmed
+            }
+        } else {
+            if !settings.throughputCustomURL.isEmpty {
+                settings.throughputCustomURL = ""
+            }
+        }
     }
 
     private func throughputFooterText() -> String {

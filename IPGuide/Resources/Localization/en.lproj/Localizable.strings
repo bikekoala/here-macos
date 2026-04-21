@@ -94,15 +94,6 @@
 "Run test" = "Run test";
 "Retest" = "Retest";
 "Testing…" = "Testing…";
-"Download" = "Download";
-"bad URL" = "bad URL";
-"no internet" = "no internet";
-"connection lost" = "connection lost";
-"timed out" = "timed out";
-"can't reach host" = "can't reach host";
-"host refused" = "host refused";
-"TLS handshake failed" = "TLS handshake failed";
-"empty response" = "empty response";
 "Tested just now" = "Tested just now";
 "Tested %dm ago" = "Tested %dm ago";
 "Tested %dh ago" = "Tested %dh ago";

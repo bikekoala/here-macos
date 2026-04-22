@@ -275,19 +275,23 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// Render the "we don't know the current egress" state. Shares the
-    /// same pill shape as the normal widget (border, flag slot, code
-    /// text) so the menu bar doesn't visually jump between a flag pill
-    /// and a foreign-looking SF symbol every time the network flaps.
-    /// `FlagRenderer` fills the flag slot with a neutral placeholder
-    /// rectangle when the ISO code is unknown; text is forced to `??`.
+    /// Render the "we don't know the current egress" state. Uses the
+    /// Guernsey flag (alpha-2 "GG") + text "OO" as a distinct but
+    /// pill-shaped placeholder — keeps the border, flag slot, and code
+    /// text the widget always has, instead of swapping in an SF symbol
+    /// that reads as a foreign emoji-style badge. GG is an ISO code the
+    /// IP provider will effectively never return, so seeing this pill
+    /// means "re-verifying / unreachable", not a real location.
+    /// User's border setting is respected; showMode and countryStyle
+    /// are forced to `.both + .flag` so the unknown state looks the
+    /// same regardless of normal display preferences.
     private func renderUnknown(on button: NSStatusBarButton) {
         let settings = environment.settings
         let input = StatusBarTitleRenderer.Input(
-            countryAlpha2: "",    // FlagRenderer returns the placeholder rect
-            regionCode: nil,      // renderer falls back to "??" for region text
-            showMode: settings.showMode,
-            countryStyle: settings.countryStyle,
+            countryAlpha2: "GG",
+            regionCode: "OO",
+            showMode: .both,
+            countryStyle: .flag,
             bordered: settings.widgetBordered,
             flagMono: !popoverOpen
         )
@@ -296,9 +300,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             button.attributedTitle = NSAttributedString(string: "")
             button.imagePosition = .imageOnly
         } else {
-            // Text-only fallback — keeps the code "??" visible even if
-            // the renderer can't build an image (shouldn't happen now
-            // that placeholderFlag always returns something).
             button.image = nil
             button.attributedTitle = NSAttributedString(
                 string: StatusBarTitleRenderer.plain(input),

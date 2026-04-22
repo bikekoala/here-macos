@@ -19,10 +19,27 @@ final class RefreshScheduler {
     /// a few seconds of each other, the second fires a no-op.
     private var lastNetworkTriggeredRefresh: Date = .distantPast
 
-    /// Minimum gap between two network-triggered refreshes. Short enough
-    /// that a genuine second network change still fires; long enough that
-    /// a single "network settled" burst doesn't hit the API twice.
-    private static let networkRefreshCoalesceWindow: TimeInterval = 3
+    /// Last time a network-triggered refresh ended in `.error`. Within a
+    /// window after this, further network events are ignored: the user
+    /// opted out of retry behaviour. Manual refresh (right-click menu,
+    /// popover button) bypasses this — it calls `triggerNow()` directly,
+    /// not through this coalesce path.
+    private var lastFailedNetworkRefresh: Date = .distantPast
+
+    /// Minimum gap between two network-triggered refreshes during normal
+    /// operation. Narrow — a single network change typically emits
+    /// proxyChanged + interfaceChanged + pathChanged within a few seconds
+    /// and we want one refresh per change, not three.
+    private static let networkRefreshCoalesceWindow: TimeInterval = 5
+
+    /// After a network-triggered refresh fails, ignore further network
+    /// events for this long. Prevents the "I switched networks, it
+    /// loaded, failed, and then started loading again by itself" pattern
+    /// — the user explicitly doesn't want retries. Long enough to
+    /// absorb the tail of a network-settling event storm; short enough
+    /// that if the user deliberately switches to a working node after
+    /// waiting, the next change still triggers a fresh attempt.
+    private static let postErrorCooldown: TimeInterval = 30
 
     init(
         ipService: IPService,
@@ -117,12 +134,21 @@ final class RefreshScheduler {
         }
     }
 
-    /// Coalesce network-triggered refreshes: if interfaceChanged and
-    /// pathChanged land within a few seconds of each other (not unusual
-    /// during a network settling event), only the first fires an actual
-    /// refresh.
+    /// Coalesce network-triggered refreshes. Two gates:
+    ///  1. Post-error cooldown: once a refresh failed, sit out further
+    ///     auto-retries for a while. The user asked for one shot, not
+    ///     a retry storm when the network settles.
+    ///  2. Burst coalesce: a single network change often emits multiple
+    ///     events (proxyChanged + interfaceChanged + pathChanged). Fire
+    ///     one refresh per change, not one per event.
     private func fireNetworkTriggeredRefresh(reason: String) async {
         let now = Date()
+        if now.timeIntervalSince(lastFailedNetworkRefresh) < Self.postErrorCooldown {
+            Log.scheduler.info(
+                "Post-error cooldown — skipping \(reason, privacy: .public)"
+            )
+            return
+        }
         if now.timeIntervalSince(lastNetworkTriggeredRefresh)
             < Self.networkRefreshCoalesceWindow {
             Log.scheduler.debug(
@@ -132,7 +158,11 @@ final class RefreshScheduler {
         }
         lastNetworkTriggeredRefresh = now
         Log.scheduler.info("Network event → refresh (\(reason, privacy: .public))")
-        await ipService.refresh(force: true)
+        let state = await ipService.refresh(force: true)
+        if case .error = state {
+            lastFailedNetworkRefresh = Date()
+            Log.scheduler.info("Refresh failed — 30 s cooldown armed")
+        }
     }
 
     private func observeWakeEvents() {

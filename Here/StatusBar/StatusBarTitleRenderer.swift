@@ -1,12 +1,14 @@
 import AppKit
 
 enum StatusBarTitleRenderer {
-    /// Border-color bucket for the pill. `.neutral` is the normal state
-    /// — subtle labelColor that matches the menu bar chrome. `.alert`
+    /// Border style for the pill. `.neutral` is the normal state —
+    /// subtle labelColor that matches the menu bar chrome. `.alert`
     /// surfaces when something's wrong (currently: latency probe timed
     /// out or exceeded the "poor" threshold, so effectively "network
-    /// not working"). Intentionally binary — intermediate tiers were
-    /// tried in v0.23.0 and ended up too noisy for an always-on pill.
+    /// not working"): a dashed red at ~70 % alpha. Pure solid red read
+    /// like a siren and a pulse animation doesn't belong in the menu
+    /// bar; the broken-line pattern carries the "unstable" semantic
+    /// while the colour still grabs a glance.
     enum BorderTint: Sendable {
         case neutral
         case alert
@@ -15,7 +17,15 @@ enum StatusBarTitleRenderer {
         var color: NSColor {
             switch self {
             case .neutral: NSColor.labelColor
-            case .alert:   NSColor.systemRed.withAlphaComponent(0.9)
+            case .alert:   NSColor.systemRed.withAlphaComponent(0.7)
+            }
+        }
+
+        /// Whether the stroke should be dashed rather than solid.
+        var isDashed: Bool {
+            switch self {
+            case .neutral: false
+            case .alert:   true
             }
         }
     }
@@ -63,7 +73,7 @@ enum StatusBarTitleRenderer {
             text = showFlag ? region : "\(alpha2.isEmpty ? "??" : alpha2) \(region)"
         }
 
-        return compose(flag: flag, text: text, borderColor: input.borderTint.color)
+        return compose(flag: flag, text: text, borderTint: input.borderTint)
     }
 
     private static func renderCountry(_ input: Input) -> String {
@@ -75,7 +85,7 @@ enum StatusBarTitleRenderer {
     }
 
     @MainActor
-    private static func compose(flag: NSImage?, text: String, borderColor: NSColor) -> NSImage? {
+    private static func compose(flag: NSImage?, text: String, borderTint: BorderTint) -> NSImage? {
         // Inside the pill we drop 2pt off the menu bar default to stay
         // visually calm — the border frame already draws the eye.
         let defaultSize = NSFont.menuBarFont(ofSize: 0).pointSize
@@ -113,7 +123,12 @@ enum StatusBarTitleRenderer {
             )
             let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
             path.lineWidth = 1
-            borderColor.setStroke()
+            if borderTint.isDashed {
+                // 3 pt dashes with 2 pt gaps — visible at 1 pt stroke
+                // without turning the pill into a dotted line.
+                path.setLineDash([3, 2], count: 2, phase: 0)
+            }
+            borderTint.color.setStroke()
             path.stroke()
 
             var x = hPadding

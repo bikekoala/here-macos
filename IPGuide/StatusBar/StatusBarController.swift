@@ -241,13 +241,20 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         let settings = environment.settings
 
+        // In `.error`, `latestState.model` still returns the cached model,
+        // which is the wrong thing to render in the menu bar: after the
+        // user switches to a network that can't reach ip.guide, they'd
+        // keep seeing the old flag and assume nothing changed. Collapse
+        // `.error` onto the "unknown" visual so the bar stops asserting
+        // a country we can no longer verify. Popover still has the cached
+        // snapshot + the "Can't reach ip.guide" error row for context.
+        if case .error = latestState {
+            renderUnknown(on: button)
+            return
+        }
+
         guard let model = latestState.model else {
-            button.image = NSImage(systemSymbolName: "globe.badge.chevron.backward", accessibilityDescription: "No IP data")
-            button.attributedTitle = NSAttributedString(
-                string: " " + StatusBarTitleRenderer.placeholder,
-                attributes: [.font: NSFont.menuBarFont(ofSize: 0)]
-            )
-            button.imagePosition = .imageLeft
+            renderUnknown(on: button)
             return
         }
 
@@ -272,5 +279,22 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
                 attributes: [.font: NSFont.menuBarFont(ofSize: 0)]
             )
         }
+    }
+
+    /// Render the "we don't know the current egress" state: used both
+    /// when there's no cache at all (first launch, etc.) and when the
+    /// latest refresh errored out (network change, ip.guide unreachable).
+    /// The popover still surfaces cached data + the error reason; this
+    /// is just about the menu bar not lying.
+    private func renderUnknown(on button: NSStatusBarButton) {
+        button.image = NSImage(
+            systemSymbolName: "globe.badge.chevron.backward",
+            accessibilityDescription: "No IP data"
+        )
+        button.attributedTitle = NSAttributedString(
+            string: " " + StatusBarTitleRenderer.placeholder,
+            attributes: [.font: NSFont.menuBarFont(ofSize: 0)]
+        )
+        button.imagePosition = .imageLeft
     }
 }

@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct ModulesSettingsView: View {
@@ -60,19 +59,11 @@ struct ModulesSettingsView: View {
 
                 if settings.throughputEndpoint == .custom {
                     LabeledContent {
-                        // AppKit TextField via NSViewRepresentable. SwiftUI's
-                        // `@FocusState` on macOS doesn't fire for clicks on
-                        // non-focusable areas (Section headers, Picker popups,
-                        // window chrome, empty space), so the "clear on blur"
-                        // rule silently failed. NSTextField's
-                        // `controlTextDidEndEditing` delegate fires reliably
-                        // for every blur path — tab, Enter, clicking any
-                        // other element, window dismiss.
-                        CustomURLField(
-                            text: $settings.throughputCustomURL,
-                            onCommit: normalizeCustomURL
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 22)
+                        TextField("", text: $settings.throughputCustomURL)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled(true)
+                            .frame(maxWidth: .infinity)
+                            .onSubmit { normalizeCustomURL() }
                     } label: {
                         Text(String(localized: "URL"))
                     }
@@ -88,12 +79,14 @@ struct ModulesSettingsView: View {
         .formStyle(.grouped)
     }
 
-    /// Normalize the custom URL field on blur:
-    /// - trim whitespace
-    /// - if what's left parses as an `https://` URL, save the trimmed version
-    /// - otherwise (empty, garbage, wrong scheme) clear the field so the user
-    ///   immediately sees that their input didn't stick. The probe surfaces
-    ///   a failure state rather than silently substituting a preset.
+    /// Normalize the custom URL field: trim whitespace; if what's left is
+    /// a valid `https://` URL keep it, otherwise clear. Called from the
+    /// couple of places where SwiftUI can reliably trigger us on macOS —
+    /// `.onSubmit` (Enter key) and `onChange(of: endpoint)` when the user
+    /// switches source. For the "clicked away" case, SwiftUI's
+    /// `@FocusState` doesn't fire on clicks onto non-focusable elements,
+    /// so that path is covered by the Run Test handler in `ThroughputCard`
+    /// which also clears + surfaces a real failure reason.
     private func normalizeCustomURL() {
         let trimmed = settings.throughputCustomURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -161,67 +154,5 @@ struct ModulesSettingsView: View {
         order.remove(at: current)
         order.insert(module, at: target)
         settings.popoverModuleOrder = order
-    }
-}
-
-/// Thin AppKit bridge around `NSTextField` so we get a real
-/// `controlTextDidEndEditing` delegate callback on every blur path.
-///
-/// SwiftUI's `TextField` + `@FocusState` on macOS only fires on blur when
-/// focus transitions to another focusable element. Clicks on Picker
-/// popups, Section headers, the window title bar, or empty form space
-/// leave the TextField focused — so the "clear invalid URL on blur" rule
-/// silently fails. AppKit's NSTextField resigns first responder and
-/// notifies its delegate for all of those cases.
-private struct CustomURLField: NSViewRepresentable {
-    @Binding var text: String
-    let onCommit: () -> Void
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
-        field.bezelStyle = .roundedBezel
-        field.isBordered = true
-        field.isEditable = true
-        field.isSelectable = true
-        field.drawsBackground = true
-        field.focusRingType = .default
-        field.lineBreakMode = .byTruncatingTail
-        field.usesSingleLineMode = true
-        field.cell?.sendsActionOnEndEditing = true
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
-        field.delegate = context.coordinator
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        context.coordinator.onCommit = onCommit
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onCommit: onCommit)
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        private let text: Binding<String>
-        var onCommit: () -> Void
-
-        init(text: Binding<String>, onCommit: @escaping () -> Void) {
-            self.text = text
-            self.onCommit = onCommit
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            text.wrappedValue = field.stringValue
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            // Fires on tab-out, Enter, clicking any other element, window
-            // losing focus, view removal — every blur path we care about.
-            onCommit()
-        }
     }
 }

@@ -1,25 +1,23 @@
 import AppKit
 
 enum StatusBarTitleRenderer {
-    /// Border style for the pill. `.neutral` is the normal state —
-    /// subtle labelColor that matches the menu bar chrome. `.alert`
-    /// surfaces when something's wrong (currently: latency probe timed
-    /// out or exceeded the "poor" threshold, so effectively "network
-    /// not working"): a dashed red at ~70 % alpha. Pure solid red read
-    /// like a siren and a pulse animation doesn't belong in the menu
-    /// bar; the broken-line pattern carries the "unstable" semantic
-    /// while the colour still grabs a glance.
+    /// Border style for the pill. Both cases use the standard label
+    /// colour so the widget never introduces a foreign hue to the menu
+    /// bar; the only cue is line pattern.
+    ///
+    /// - `.neutral`: solid stroke — normal state.
+    /// - `.alert`:   dashed stroke — something's wrong (currently:
+    ///               latency probe timed out or exceeded the "poor"
+    ///               threshold, so effectively "network not working").
+    ///               The broken-line pattern carries the "unstable /
+    ///               intermittent" semantic without the shout of a red
+    ///               border or the distraction of a pulse animation.
     enum BorderTint: Sendable {
         case neutral
         case alert
 
         @MainActor
-        var color: NSColor {
-            switch self {
-            case .neutral: NSColor.labelColor
-            case .alert:   NSColor.systemRed.withAlphaComponent(0.7)
-            }
-        }
+        var color: NSColor { NSColor.labelColor }
 
         /// Whether the stroke should be dashed rather than solid.
         var isDashed: Bool {

@@ -42,6 +42,13 @@ struct ModulesSettingsView: View {
                     Text(verbatim: "60").tag(60)
                 }
                 .disabled(!settings.latencyEnabled)
+
+                Toggle(
+                    String(localized: "Red border on poor latency"),
+                    isOn: $settings.widgetLatencyAlert
+                )
+                .disabled(!settings.latencyEnabled)
+                .help(String(localized: "Turn the menu bar pill border red when a probe times out or exceeds 2 s."))
             }
 
             Section {

@@ -48,6 +48,8 @@
 "Target" = "Target";
 "Interval" = "Interval";
 "Slots" = "Slots";
+"Red border on poor latency" = "Red border on poor latency";
+"Turn the menu bar pill border red when a probe times out or exceeds 2 s." = "Turn the menu bar pill border red when a probe times out or exceeds 2 s.";
 "Source" = "Source";
 "URL" = "URL";
 "Cachefly (100 MB)" = "Cachefly (100 MB)";

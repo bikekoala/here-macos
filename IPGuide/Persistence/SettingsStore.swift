@@ -44,6 +44,15 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(latencySlotCount, forKey: Keys.latencySlotCount) }
     }
 
+    /// When true, the status-bar pill border turns red whenever the
+    /// most recent latency probe is in the "poor" bucket (timeout or
+    /// >2000 ms). When false, the border is always neutral regardless
+    /// of latency. Only meaningful when the latency module itself is
+    /// enabled.
+    var widgetLatencyAlert: Bool {
+        didSet { UserDefaults.standard.set(widgetLatencyAlert, forKey: Keys.widgetLatencyAlert) }
+    }
+
     var popoverModuleOrder: [PopoverModule] {
         didSet {
             let raw = popoverModuleOrder.map(\.rawValue)
@@ -100,6 +109,8 @@ final class SettingsStore {
         let slot = defaults.integer(forKey: Keys.latencySlotCount)
         let allowedSlots: Set<Int> = [30, 45, 60]
         self.latencySlotCount = allowedSlots.contains(slot) ? slot : 30
+
+        self.widgetLatencyAlert = defaults.object(forKey: Keys.widgetLatencyAlert) as? Bool ?? true
 
         let savedOrder = (defaults.stringArray(forKey: Keys.popoverModuleOrder) ?? [])
             .compactMap(PopoverModule.init(rawValue:))
@@ -160,6 +171,7 @@ final class SettingsStore {
         static let latencyProbeTarget = "latency.target"
         static let latencyIntervalSeconds = "latency.intervalSeconds"
         static let latencySlotCount = "latency.slotCount"
+        static let widgetLatencyAlert = "widget.latencyAlert"
         static let popoverModuleOrder = "popover.moduleOrder"
         static let throughputEndpoint = "throughput.endpoint"
         static let throughputCustomURL = "throughput.customURL"

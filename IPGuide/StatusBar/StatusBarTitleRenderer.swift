@@ -1,27 +1,21 @@
 import AppKit
 
 enum StatusBarTitleRenderer {
-    /// Border-color bucket for the pill. Keyed to the most-recent latency
-    /// sample's classification so a glance at the menu bar tells the user
-    /// whether the connection is healthy without opening the popover.
-    /// `.neutral` is the default when latency isn't enabled, the probe
-    /// hasn't collected a sample yet, or the egress is in an
-    /// unknown state.
+    /// Border-color bucket for the pill. `.neutral` is the normal state
+    /// — subtle labelColor that matches the menu bar chrome. `.alert`
+    /// surfaces when something's wrong (currently: latency probe timed
+    /// out or exceeded the "poor" threshold, so effectively "network
+    /// not working"). Intentionally binary — intermediate tiers were
+    /// tried in v0.23.0 and ended up too noisy for an always-on pill.
     enum BorderTint: Sendable {
         case neutral
-        case good
-        case moderate
-        case slow
-        case poor
+        case alert
 
         @MainActor
         var color: NSColor {
             switch self {
-            case .neutral:  NSColor.labelColor.withAlphaComponent(0.65)
-            case .good:     NSColor.systemGreen.withAlphaComponent(0.85)
-            case .moderate: NSColor.systemYellow.withAlphaComponent(0.95)
-            case .slow:     NSColor.systemOrange.withAlphaComponent(0.9)
-            case .poor:     NSColor.systemRed.withAlphaComponent(0.9)
+            case .neutral: NSColor.labelColor.withAlphaComponent(0.65)
+            case .alert:   NSColor.systemRed.withAlphaComponent(0.9)
             }
         }
     }

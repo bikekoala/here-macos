@@ -6,7 +6,7 @@ final class AppEnvironment {
     let cache: IPCache
     let networkMonitor: NetworkMonitor
     let sleepWakeObserver: SleepWakeObserver
-    let proxyObserver: ProxyConfigObserver
+    let systemNetworkObserver: SystemNetworkObserver
     let ipService: IPService
     let regionMapper: RegionMapper
     let latencyService: LatencyService
@@ -26,7 +26,7 @@ final class AppEnvironment {
         let settings = SettingsStore()
         let networkMonitor = NetworkMonitor()
         let sleepWakeObserver = SleepWakeObserver()
-        let proxyObserver = ProxyConfigObserver()
+        let systemNetworkObserver = SystemNetworkObserver()
         let regionMapper = RegionMapper()
         let ipService = IPService(provider: IPGuideProvider(), cache: cache)
         let latencyService = LatencyService(
@@ -40,7 +40,7 @@ final class AppEnvironment {
             settings: settings,
             networkMonitor: networkMonitor,
             sleepWakeObserver: sleepWakeObserver,
-            proxyObserver: proxyObserver
+            systemNetworkObserver: systemNetworkObserver
         )
         let latencyScheduler = LatencyScheduler(
             service: latencyService,
@@ -54,7 +54,7 @@ final class AppEnvironment {
         self.settings = settings
         self.networkMonitor = networkMonitor
         self.sleepWakeObserver = sleepWakeObserver
-        self.proxyObserver = proxyObserver
+        self.systemNetworkObserver = systemNetworkObserver
         self.regionMapper = regionMapper
         self.ipService = ipService
         self.latencyService = latencyService
@@ -69,7 +69,7 @@ final class AppEnvironment {
     func start() {
         networkMonitor.start()
         sleepWakeObserver.start()
-        proxyObserver.start()
+        systemNetworkObserver.start()
         scheduler.start()
         latencyScheduler.start()
         startStateObservation()
@@ -82,7 +82,7 @@ final class AppEnvironment {
         stateObserverTask = nil
         scheduler.stop()
         latencyScheduler.stop()
-        proxyObserver.stop()
+        systemNetworkObserver.stop()
         sleepWakeObserver.stop()
         networkMonitor.stop()
     }

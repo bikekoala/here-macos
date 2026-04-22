@@ -6,11 +6,11 @@ final class RefreshScheduler {
     private let settings: SettingsStore
     private let networkMonitor: NetworkMonitor
     private let sleepWakeObserver: SleepWakeObserver
-    private let proxyObserver: ProxyConfigObserver
+    private let systemNetworkObserver: SystemNetworkObserver
 
     private var loopTask: Task<Void, Never>?
     private var networkTask: Task<Void, Never>?
-    private var proxyTask: Task<Void, Never>?
+    private var systemNetworkTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
     private var settingsTask: Task<Void, Never>?
 
@@ -28,7 +28,7 @@ final class RefreshScheduler {
 
     /// Minimum gap between two network-triggered refreshes during normal
     /// operation. Narrow — a single network change typically emits
-    /// proxyChanged + interfaceChanged + pathChanged within a few seconds
+    /// systemStateChanged + interfaceChanged + pathChanged within a few seconds
     /// and we want one refresh per change, not three.
     private static let networkRefreshCoalesceWindow: TimeInterval = 5
 
@@ -46,19 +46,19 @@ final class RefreshScheduler {
         settings: SettingsStore,
         networkMonitor: NetworkMonitor,
         sleepWakeObserver: SleepWakeObserver,
-        proxyObserver: ProxyConfigObserver
+        systemNetworkObserver: SystemNetworkObserver
     ) {
         self.ipService = ipService
         self.settings = settings
         self.networkMonitor = networkMonitor
         self.sleepWakeObserver = sleepWakeObserver
-        self.proxyObserver = proxyObserver
+        self.systemNetworkObserver = systemNetworkObserver
     }
 
     func start() {
         restartLoop()
         observeNetworkEvents()
-        observeProxyEvents()
+        observeSystemNetworkEvents()
         observeWakeEvents()
         observeSettingsChanges()
     }
@@ -66,7 +66,7 @@ final class RefreshScheduler {
     func stop() {
         loopTask?.cancel(); loopTask = nil
         networkTask?.cancel(); networkTask = nil
-        proxyTask?.cancel(); proxyTask = nil
+        systemNetworkTask?.cancel(); systemNetworkTask = nil
         wakeTask?.cancel(); wakeTask = nil
         settingsTask?.cancel(); settingsTask = nil
     }
@@ -118,18 +118,18 @@ final class RefreshScheduler {
         }
     }
 
-    private func observeProxyEvents() {
-        proxyTask?.cancel()
-        proxyTask = Task { [weak self] in
-            guard let stream = self?.proxyObserver.events() else { return }
+    private func observeSystemNetworkEvents() {
+        systemNetworkTask?.cancel()
+        systemNetworkTask = Task { [weak self] in
+            guard let stream = self?.systemNetworkObserver.events() else { return }
             for await _ in stream {
                 guard let self else { return }
                 guard settings.refreshOnNetworkChange else { continue }
-                // Proxy changes take a beat to propagate through URLSession's
-                // internal cache + any in-flight connections; the previous
-                // 2 s of waiting for NWPath deltas is a reasonable match.
+                // 2 s matches the NWPathMonitor leg — give URLSession's
+                // connection cache + DNS resolver a beat to notice the
+                // new network plane before we fire the probe.
                 try? await Task.sleep(for: .seconds(2))
-                await fireNetworkTriggeredRefresh(reason: "proxyChanged")
+                await fireNetworkTriggeredRefresh(reason: "systemStateChanged")
             }
         }
     }
@@ -139,7 +139,7 @@ final class RefreshScheduler {
     ///     auto-retries for a while. The user asked for one shot, not
     ///     a retry storm when the network settles.
     ///  2. Burst coalesce: a single network change often emits multiple
-    ///     events (proxyChanged + interfaceChanged + pathChanged). Fire
+    ///     events (systemStateChanged + interfaceChanged + pathChanged). Fire
     ///     one refresh per change, not one per event.
     private func fireNetworkTriggeredRefresh(reason: String) async {
         let now = Date()

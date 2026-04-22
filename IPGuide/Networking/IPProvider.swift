@@ -20,8 +20,12 @@ struct IPGuideProvider: IPProvider {
 
     static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
+        // Both timeouts set to 10 s so any single fetch can't exceed
+        // ~10 s wall-clock — the resource timeout caps total time
+        // (connect + request + response) regardless of whether data
+        // is trickling in.
         config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 15
+        config.timeoutIntervalForResource = 10
         config.waitsForConnectivity = false
         config.httpAdditionalHeaders = [
             "Accept": "application/json",

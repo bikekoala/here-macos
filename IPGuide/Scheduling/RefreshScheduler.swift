@@ -14,10 +14,13 @@ final class RefreshScheduler {
     private var wakeTask: Task<Void, Never>?
     private var settingsTask: Task<Void, Never>?
 
-    /// Last time a network/proxy-driven refresh actually fired. Used to
-    /// collapse bursts — if interfaceChanged and pathChanged land within
-    /// a few seconds of each other, the second fires a no-op.
+    /// Last time a network/proxy-driven refresh actually fired, plus the
+    /// snapshot it was fired against. Used to collapse bursts — an
+    /// interfaceChanged + pathChanged + systemStateChanged trio from a
+    /// single network change all land within a few seconds and carry
+    /// the same snapshot, so only the first fires.
     private var lastNetworkTriggeredRefresh: Date = .distantPast
+    private var lastNetworkTriggeredSnapshot: String = ""
 
     /// Last time a network-triggered refresh ended in `.error`, plus
     /// the network-plane snapshot it was made against. Suppression is
@@ -140,18 +143,22 @@ final class RefreshScheduler {
         }
     }
 
-    /// Coalesce network-triggered refreshes. Two gates:
-    ///  1. Snapshot-scoped post-error cooldown: once a refresh failed
-    ///     *on a given network plane*, further events on the *same*
-    ///     plane within 30 s are settling-noise and get skipped. If
-    ///     the user genuinely switches to a different network
-    ///     (different primary interface or gateway), the snapshot
-    ///     differs and the event fires — that's not a retry, that's a
-    ///     new state to probe.
+    /// Coalesce network-triggered refreshes. Both gates are scoped to
+    /// the network-plane snapshot (`<interface>:<router>`) — same
+    /// snapshot = noise from one settling change, different snapshot =
+    /// a genuine re-switch that deserves its own probe.
+    ///
+    ///  1. Post-error cooldown: once a refresh failed *on a given
+    ///     snapshot*, further events carrying the *same* snapshot
+    ///     within 30 s are skipped. Switching to a different network
+    ///     (different snapshot) fires through immediately.
     ///  2. Burst coalesce: a single network change often emits
-    ///     multiple events (systemStateChanged + interfaceChanged +
-    ///     pathChanged within a few seconds). Fire one refresh per
-    ///     change, not one per event.
+    ///     multiple events within a few seconds. Same-snapshot events
+    ///     inside a 5 s window are collapsed into the first refresh.
+    ///     A different snapshot — e.g. the user switched again while
+    ///     we were still loading the previous one — is never
+    ///     coalesced, so the new state gets its own probe as soon as
+    ///     the in-flight fetch returns.
     private func fireNetworkTriggeredRefresh(reason: String) async {
         let now = Date()
         let snapshot = systemNetworkObserver.primaryIPv4Snapshot()
@@ -165,14 +172,18 @@ final class RefreshScheduler {
             )
             return
         }
-        if now.timeIntervalSince(lastNetworkTriggeredRefresh)
-            < Self.networkRefreshCoalesceWindow {
+        let inBurst = !lastNetworkTriggeredSnapshot.isEmpty
+            && lastNetworkTriggeredSnapshot == snapshot
+            && now.timeIntervalSince(lastNetworkTriggeredRefresh)
+                < Self.networkRefreshCoalesceWindow
+        if inBurst {
             Log.scheduler.debug(
-                "Coalescing network event → skip refresh (\(reason, privacy: .public))"
+                "Burst coalesce (same snapshot) → skip \(reason, privacy: .public)"
             )
             return
         }
         lastNetworkTriggeredRefresh = now
+        lastNetworkTriggeredSnapshot = snapshot
         Log.scheduler.info("Network event → refresh (\(reason, privacy: .public))")
 
         // Flip the state to `.loading(cached:)` BEFORE the settling wait

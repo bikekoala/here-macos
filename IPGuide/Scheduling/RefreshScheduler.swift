@@ -19,12 +19,14 @@ final class RefreshScheduler {
     /// a few seconds of each other, the second fires a no-op.
     private var lastNetworkTriggeredRefresh: Date = .distantPast
 
-    /// Last time a network-triggered refresh ended in `.error`. Within a
-    /// window after this, further network events are ignored: the user
-    /// opted out of retry behaviour. Manual refresh (right-click menu,
-    /// popover button) bypasses this — it calls `triggerNow()` directly,
-    /// not through this coalesce path.
+    /// Last time a network-triggered refresh ended in `.error`, plus
+    /// the network-plane snapshot it was made against. Suppression is
+    /// scoped to that snapshot: if the user switches to a genuinely
+    /// different network, the next event fires normally instead of
+    /// being coalesced as "retry noise". Manual refresh bypasses this —
+    /// it calls `triggerNow()` directly, not through this path.
     private var lastFailedNetworkRefresh: Date = .distantPast
+    private var lastFailedSnapshot: String = ""
 
     /// Minimum gap between two network-triggered refreshes during normal
     /// operation. Narrow — a single network change typically emits
@@ -112,7 +114,16 @@ final class RefreshScheduler {
                         reason: String(describing: event)
                     )
                 case .becameUnreachable:
-                    break
+                    // Airplane mode, link down, fully offline. No point
+                    // issuing a fetch URLSession will reject instantly;
+                    // just put the state machine in `.error(.offline)`
+                    // so the widget stops asserting the cached flag.
+                    // Reset our failure snapshot so the next reachable
+                    // event (new network plane) isn't locked out by
+                    // post-error cooldown.
+                    await ipService.forceOffline()
+                    lastFailedSnapshot = ""
+                    lastFailedNetworkRefresh = .distantPast
                 }
             }
         }
@@ -135,17 +146,27 @@ final class RefreshScheduler {
     }
 
     /// Coalesce network-triggered refreshes. Two gates:
-    ///  1. Post-error cooldown: once a refresh failed, sit out further
-    ///     auto-retries for a while. The user asked for one shot, not
-    ///     a retry storm when the network settles.
-    ///  2. Burst coalesce: a single network change often emits multiple
-    ///     events (systemStateChanged + interfaceChanged + pathChanged). Fire
-    ///     one refresh per change, not one per event.
+    ///  1. Snapshot-scoped post-error cooldown: once a refresh failed
+    ///     *on a given network plane*, further events on the *same*
+    ///     plane within 30 s are settling-noise and get skipped. If
+    ///     the user genuinely switches to a different network
+    ///     (different primary interface or gateway), the snapshot
+    ///     differs and the event fires — that's not a retry, that's a
+    ///     new state to probe.
+    ///  2. Burst coalesce: a single network change often emits
+    ///     multiple events (systemStateChanged + interfaceChanged +
+    ///     pathChanged within a few seconds). Fire one refresh per
+    ///     change, not one per event.
     private func fireNetworkTriggeredRefresh(reason: String) async {
         let now = Date()
-        if now.timeIntervalSince(lastFailedNetworkRefresh) < Self.postErrorCooldown {
+        let snapshot = systemNetworkObserver.primaryIPv4Snapshot()
+
+        let inErrorCooldown = !lastFailedSnapshot.isEmpty
+            && lastFailedSnapshot == snapshot
+            && now.timeIntervalSince(lastFailedNetworkRefresh) < Self.postErrorCooldown
+        if inErrorCooldown {
             Log.scheduler.info(
-                "Post-error cooldown — skipping \(reason, privacy: .public)"
+                "Post-error cooldown (same snapshot) — skipping \(reason, privacy: .public)"
             )
             return
         }
@@ -161,7 +182,12 @@ final class RefreshScheduler {
         let state = await ipService.refresh(force: true)
         if case .error = state {
             lastFailedNetworkRefresh = Date()
-            Log.scheduler.info("Refresh failed — 30 s cooldown armed")
+            lastFailedSnapshot = snapshot
+            Log.scheduler.info(
+                "Refresh failed — 30 s cooldown armed for snapshot \(snapshot, privacy: .public)"
+            )
+        } else {
+            lastFailedSnapshot = ""
         }
     }
 

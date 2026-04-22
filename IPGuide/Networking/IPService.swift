@@ -41,6 +41,18 @@ actor IPService {
 
     func currentSnapshot() -> IPState { currentState }
 
+    /// Transition the state to `.error(.offline, cached:)` without
+    /// touching the network. Used by the scheduler when NWPathMonitor
+    /// reports `.becameUnreachable` (airplane mode, link down) — the
+    /// widget should reflect "we can't verify egress" instead of sitting
+    /// on the last known flag, and there's no point issuing a fetch
+    /// URLSession will immediately reject.
+    func forceOffline() {
+        if inflight != nil { return }
+        let cached = cache.load()
+        emit(.error(.offline, cached: cached?.model, fetchedAt: cached?.fetchedAt))
+    }
+
     @discardableResult
     func refresh(force: Bool = false) async -> IPState {
         if let last = lastSuccessAt, !force, Date().timeIntervalSince(last) < minimumGap {

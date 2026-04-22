@@ -116,4 +116,21 @@ final class SystemNetworkObserver {
         Log.network.info("System network state changed")
         for c in continuations.values { c.yield(event) }
     }
+
+    /// Snapshot of the primary IPv4 plane as `"<interface>:<router>"`.
+    /// Used by the scheduler to tell "same network flapped" apart from
+    /// "user switched networks". Returns `""` when offline / airplane
+    /// mode / no primary service (the key is absent from the store).
+    func primaryIPv4Snapshot() -> String {
+        guard let store,
+              let raw = SCDynamicStoreCopyValue(
+                store,
+                "State:/Network/Global/IPv4" as CFString
+              ),
+              let dict = raw as? [String: Any]
+        else { return "" }
+        let iface = dict["PrimaryInterface"] as? String ?? ""
+        let router = dict["Router"] as? String ?? ""
+        return "\(iface):\(router)"
+    }
 }

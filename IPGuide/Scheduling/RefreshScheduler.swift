@@ -109,7 +109,6 @@ final class RefreshScheduler {
                 switch event {
                 case .becameReachable, .interfaceChanged, .pathChanged:
                     guard settings.refreshOnNetworkChange else { continue }
-                    try? await Task.sleep(for: .seconds(2))
                     await fireNetworkTriggeredRefresh(
                         reason: String(describing: event)
                     )
@@ -136,10 +135,6 @@ final class RefreshScheduler {
             for await _ in stream {
                 guard let self else { return }
                 guard settings.refreshOnNetworkChange else { continue }
-                // 2 s matches the NWPathMonitor leg — give URLSession's
-                // connection cache + DNS resolver a beat to notice the
-                // new network plane before we fire the probe.
-                try? await Task.sleep(for: .seconds(2))
                 await fireNetworkTriggeredRefresh(reason: "systemStateChanged")
             }
         }
@@ -179,6 +174,18 @@ final class RefreshScheduler {
         }
         lastNetworkTriggeredRefresh = now
         Log.scheduler.info("Network event → refresh (\(reason, privacy: .public))")
+
+        // Flip the state to `.loading(cached:)` BEFORE the settling wait
+        // so the widget + popover reflect "re-checking" as soon as the
+        // event arrives — otherwise the UI keeps rendering the prior
+        // `.error(.offline)` for 2 s after the network returns, which
+        // reads as the app ignoring the change.
+        await ipService.beginLoadingPlaceholder()
+
+        // Give URLSession's DNS + connection cache a beat to notice the
+        // new network plane before hitting ip.guide.
+        try? await Task.sleep(for: .seconds(2))
+
         let state = await ipService.refresh(force: true)
         if case .error = state {
             lastFailedNetworkRefresh = Date()

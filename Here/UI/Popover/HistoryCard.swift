@@ -94,14 +94,21 @@ struct HistoryCard: View {
     }
 
     private var chain: some View {
-        // Chain grows from the right: the newest chip is always pinned to
-        // the trailing edge, older chips push to the left as events
-        // accumulate. Inter-chip spacing is fixed — the flexible
-        // `Spacer(minLength: 0)` at the leading edge eats whatever
-        // horizontal slack is left, so 2–3 chips stay clustered tightly
-        // on the right instead of sprawling across the card. A full
-        // chain (`maxChips` entries) naturally consumes most of the
-        // width, so the leading Spacer collapses to near zero.
+        // Two layout modes depending on fullness:
+        //
+        //  - Full (`displayed.count == maxChips`): edge-to-edge
+        //    distribution. First chip flush with leading card padding,
+        //    last chip flush with trailing, arrow gaps split evenly via
+        //    flexible Spacers. Looks "filled".
+        //  - Partial: cluster to the trailing edge with fixed inter-chip
+        //    gaps; a leading flexible Spacer eats residual width so 2–3
+        //    chips stay tight together instead of sprawling across the
+        //    card. Chain grows leftward as events accumulate.
+        //
+        // The full case uses flexible Spacers around each arrow so both
+        // ends land flush against the card padding — if we used the
+        // partial-mode layout at full count, a ~18 pt residual would
+        // show up as asymmetric whitespace on the leading side.
         //
         // Older events beyond `maxChips` get dropped from the visible
         // chain; the header's `N changes` counter still reflects the
@@ -111,15 +118,26 @@ struct HistoryCard: View {
         // chip's "time ago" label stays live — without it, "28m" would
         // stay "28m" until the next IP change fires a re-render.
         let displayed = Array(events.suffix(maxChips))
+        let isFull = displayed.count == maxChips
         return TimelineView(.periodic(from: .now, by: 30)) { context in
             HStack(alignment: .flagMidline, spacing: 0) {
-                Spacer(minLength: 0)
+                if !isFull {
+                    Spacer(minLength: 0)
+                }
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, event in
                     if index > 0 {
-                        Image(systemName: "arrow.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 8)
+                        if isFull {
+                            Spacer(minLength: 4)
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Spacer(minLength: 4)
+                        } else {
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 8)
+                        }
                     }
                     chip(for: event, isCurrent: index == displayed.count - 1, now: context.date)
                 }

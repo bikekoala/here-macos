@@ -58,6 +58,7 @@
 		AA0000000000000030000052 /* CountryNameMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000052 /* CountryNameMapper.swift */; };
 		AA0000000000000030000053 /* ThroughputEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000053 /* ThroughputEndpoint.swift */; };
 		AA0000000000000030000054 /* ProxyConfigObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000054 /* ProxyConfigObserver.swift */; };
+		AA0000000000000030000055 /* BundledFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000055 /* BundledFlags.swift */; };
 		AA0000000000000030000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000032 /* Assets.xcassets */; };
 		AA0000000000000030000033 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA000000000000001000010D /* Localizable.strings */; };
 		AA0000000000000030000040 /* URLProtocolMock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000020000040 /* URLProtocolMock.swift */; };
@@ -122,6 +123,7 @@
 		AA0000000000000020000052 /* CountryNameMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryNameMapper.swift; sourceTree = "<group>"; };
 		AA0000000000000020000053 /* ThroughputEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThroughputEndpoint.swift; sourceTree = "<group>"; };
 		AA0000000000000020000054 /* ProxyConfigObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyConfigObserver.swift; sourceTree = "<group>"; };
+		AA0000000000000020000055 /* BundledFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledFlags.swift; sourceTree = "<group>"; };
 		AA0000000000000020000030 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000000000000020000031 /* IPGuide.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = IPGuide.entitlements; sourceTree = "<group>"; };
 		AA0000000000000020000032 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -270,6 +272,7 @@
 				AA0000000000000020000015 /* CountryFlag.swift */,
 				AA0000000000000020000052 /* CountryNameMapper.swift */,
 				AA0000000000000020000025 /* FlagRenderer.swift */,
+				AA0000000000000020000055 /* BundledFlags.swift */,
 				AA0000000000000020000016 /* Clipboard.swift */,
 			);
 			path = Services;
@@ -533,6 +536,7 @@
 				AA0000000000000030000052 /* CountryNameMapper.swift in Sources */,
 				AA0000000000000030000053 /* ThroughputEndpoint.swift in Sources */,
 				AA0000000000000030000054 /* ProxyConfigObserver.swift in Sources */,
+				AA0000000000000030000055 /* BundledFlags.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

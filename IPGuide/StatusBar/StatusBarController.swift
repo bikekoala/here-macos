@@ -19,6 +19,11 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var latestState: IPState = .idle
     private var latestRegion: String?
     private var popoverOpen = false
+    /// Alpha-2 code currently used for the "unknown egress" placeholder.
+    /// Picked once when we enter an unknown state, held stable through
+    /// all renders while in unknown, cleared on return to `.loaded` so
+    /// the next unknown state rolls a fresh random flag.
+    private var currentUnknownFlag: String?
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -252,6 +257,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             return
         }
 
+        // Back to a verified egress — drop the stashed random flag so
+        // the next unknown cycle rolls a new one.
+        currentUnknownFlag = nil
+
         let input = StatusBarTitleRenderer.Input(
             countryAlpha2: model.countryAlpha2,
             regionCode: latestRegion,
@@ -275,20 +284,30 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// Render the "we don't know the current egress" state. Uses the
-    /// Guernsey flag (alpha-2 "GG") + text "OO" as a distinct but
-    /// pill-shaped placeholder — keeps the border, flag slot, and code
-    /// text the widget always has, instead of swapping in an SF symbol
-    /// that reads as a foreign emoji-style badge. GG is an ISO code the
-    /// IP provider will effectively never return, so seeing this pill
-    /// means "re-verifying / unreachable", not a real location.
-    /// User's border setting is respected; showMode and countryStyle
-    /// are forced to `.both + .flag` so the unknown state looks the
-    /// same regardless of normal display preferences.
+    /// Render the "we don't know the current egress" state.
+    ///
+    /// Keeps the pill shape (flag + region code + user's border) so the
+    /// widget doesn't visually jump to a different kind of element every
+    /// time the network flaps. Flag is a random bundled one, picked
+    /// once per unknown cycle; text is the sentinel "OO" (never a real
+    /// ISO region, so the user can distinguish placeholder from real
+    /// data at a glance). Random flag keeps the pill feeling alive and
+    /// makes state transitions visible — a collision with the previous
+    /// country would otherwise look like nothing changed.
     private func renderUnknown(on button: NSStatusBarButton) {
         let settings = environment.settings
+
+        let code: String
+        if let stored = currentUnknownFlag {
+            code = stored
+        } else {
+            let excluded = latestState.model?.countryAlpha2
+            code = BundledFlags.randomCode(excluding: excluded)
+            currentUnknownFlag = code
+        }
+
         let input = StatusBarTitleRenderer.Input(
-            countryAlpha2: "GG",
+            countryAlpha2: code,
             regionCode: "OO",
             showMode: .both,
             countryStyle: .flag,

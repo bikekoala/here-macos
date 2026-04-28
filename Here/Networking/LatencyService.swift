@@ -4,11 +4,11 @@ actor LatencyService {
     private let session: URLSession
     private var samples: [LatencySample] = []
     private var capacity: Int
-    private var currentTarget: URL
+    private var currentTarget: URL?
     private var continuations: [UUID: AsyncStream<[LatencySample]>.Continuation] = [:]
     private var inflight: Task<Void, Never>?
 
-    init(capacity: Int = 30, target: URL = LatencyProbeTarget.cloudflare.url) {
+    init(capacity: Int = 30, target: URL? = LatencyProbeTarget.googleGenerate.presetURL) {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 5
@@ -42,7 +42,7 @@ actor LatencyService {
         }
     }
 
-    func setTarget(_ url: URL) {
+    func setTarget(_ url: URL?) {
         if currentTarget != url {
             currentTarget = url
         }
@@ -64,7 +64,15 @@ actor LatencyService {
     }
 
     private func performProbe() async {
-        var request = URLRequest(url: currentTarget)
+        // No target = `.custom` selected with an empty/invalid URL.
+        // Tick the chain with a "skipped" marker so the user can see
+        // the loop is still alive (gray) — distinct from a real
+        // timeout (red).
+        guard let target = currentTarget else {
+            append(LatencySample(latencyMs: nil, wasSkipped: true))
+            return
+        }
+        var request = URLRequest(url: target)
         request.httpMethod = "HEAD"
         let start = Date()
         do {

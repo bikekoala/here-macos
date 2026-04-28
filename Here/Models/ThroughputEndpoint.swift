@@ -42,4 +42,37 @@ enum ThroughputEndpoint: String, CaseIterable, Identifiable, Sendable, Codable {
             return nil
         }
     }
+
+    /// Resolve to a concrete `URL`. For `.custom` the supplied string
+    /// must be a valid `http://` or `https://` URL — otherwise returns
+    /// `nil`, and the Run Test handler surfaces that as a failure
+    /// rather than running against a fallback.
+    func resolveURL(customURL: String) -> URL? {
+        if let preset = presetURL { return preset }
+        return URL.fromUserCustomEndpoint(customURL)
+    }
+}
+
+extension URL {
+    /// Parse a user-entered string into a probe / download URL.
+    /// Accepts `http://` or `https://` with a DNS-shaped host —
+    /// letters, digits, dots and hyphens. `URL(string:)` itself is
+    /// permissive enough that `http://*` parses to a URL with host
+    /// `*`; the host regex below rejects those wildcard / exotic
+    /// forms. Shared by both the latency and throughput Custom URL
+    /// fields so validity is judged the same way everywhere.
+    static func fromUserCustomEndpoint(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = url.host(percentEncoded: false),
+              host.range(
+                  of: #"^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+$"#,
+                  options: .regularExpression
+              ) != nil
+        else { return nil }
+        return url
+    }
 }

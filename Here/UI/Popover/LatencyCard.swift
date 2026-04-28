@@ -171,6 +171,9 @@ struct LatencyCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         let time = formatter.string(from: sample.at)
+        if sample.wasSkipped {
+            return "\(time)  " + String(localized: "no target")
+        }
         if let ms = sample.latencyMs {
             return String(format: "%@  %.0f ms", time, ms)
         }
@@ -185,6 +188,7 @@ struct LatencyCard: View {
 
     private var current: String {
         guard let last = samples.last else { return "—" }
+        if last.wasSkipped { return "—" }
         guard let ms = last.latencyMs else { return "✕" }
         return String(format: "%.0f", ms)
     }

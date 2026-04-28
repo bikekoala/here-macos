@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ModulesSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @FocusState private var latencyURLFocused: Bool
+    @FocusState private var throughputURLFocused: Bool
 
     var body: some View {
         @Bindable var settings = settings
@@ -28,6 +30,21 @@ struct ModulesSettingsView: View {
                     }
                 }
                 .disabled(!settings.latencyEnabled)
+                .onChange(of: settings.latencyProbeTarget) { _, _ in
+                    trimLatencyCustomURL()
+                    latencyURLFocused = false
+                }
+
+                if settings.latencyProbeTarget == .custom {
+                    URLEntryRow(
+                        label: String(localized: "URL"),
+                        text: $settings.latencyCustomURL,
+                        isValid: settings.latencyTargetURL != nil,
+                        focusBinding: $latencyURLFocused,
+                        onCommit: trimLatencyCustomURL
+                    )
+                    .disabled(!settings.latencyEnabled)
+                }
 
                 Picker(String(localized: "Interval"), selection: $settings.latencyInterval) {
                     ForEach(LatencyInterval.allCases) { interval in
@@ -48,7 +65,7 @@ struct ModulesSettingsView: View {
                     isOn: $settings.widgetLatencyAlert
                 )
                 .disabled(!settings.latencyEnabled)
-                .help(String(localized: "Turn the menu bar pill border red when a probe times out or exceeds 2 s."))
+                .help(String(localized: "Turn the menu bar pill border red when a probe times out or exceeds 600 ms."))
             }
 
             Section {
@@ -58,22 +75,18 @@ struct ModulesSettingsView: View {
                     }
                 }
                 .onChange(of: settings.throughputEndpoint) { _, _ in
-                    // Switching away from .custom is a good moment to
-                    // normalize — if the user leaves garbage in the field
-                    // and flips to another source, don't let it sit there.
-                    normalizeCustomURL()
+                    trimThroughputCustomURL()
+                    throughputURLFocused = false
                 }
 
                 if settings.throughputEndpoint == .custom {
-                    LabeledContent {
-                        TextField("", text: $settings.throughputCustomURL)
-                            .textFieldStyle(.roundedBorder)
-                            .autocorrectionDisabled(true)
-                            .frame(maxWidth: .infinity)
-                            .onSubmit { normalizeCustomURL() }
-                    } label: {
-                        Text(String(localized: "URL"))
-                    }
+                    URLEntryRow(
+                        label: String(localized: "URL"),
+                        text: $settings.throughputCustomURL,
+                        isValid: settings.throughputTargetURL != nil,
+                        focusBinding: $throughputURLFocused,
+                        onCommit: trimThroughputCustomURL
+                    )
                 }
             } header: {
                 Text(String(localized: "Throughput"))
@@ -84,29 +97,30 @@ struct ModulesSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .simultaneousGesture(
+            TapGesture()
+                .onEnded { _ in
+                    trimLatencyCustomURL()
+                    trimThroughputCustomURL()
+                    latencyURLFocused = false
+                    throughputURLFocused = false
+                }
+        )
     }
 
-    /// Normalize the custom URL field: trim whitespace; if what's left is
-    /// a valid `https://` URL keep it, otherwise clear. Called from the
-    /// couple of places where SwiftUI can reliably trigger us on macOS —
-    /// `.onSubmit` (Enter key) and `onChange(of: endpoint)` when the user
-    /// switches source. For the "clicked away" case, SwiftUI's
-    /// `@FocusState` doesn't fire on clicks onto non-focusable elements,
-    /// so that path is covered by the Run Test handler in `ThroughputCard`
-    /// which also clears + surfaces a real failure reason.
-    private func normalizeCustomURL() {
+    private func trimLatencyCustomURL() {
+        let trimmed = settings.latencyCustomURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if settings.latencyCustomURL != trimmed {
+            settings.latencyCustomURL = trimmed
+        }
+    }
+
+    private func trimThroughputCustomURL() {
         let trimmed = settings.throughputCustomURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmed),
-           url.scheme?.lowercased() == "https",
-           url.host?.isEmpty == false {
-            if settings.throughputCustomURL != trimmed {
-                settings.throughputCustomURL = trimmed
-            }
-        } else {
-            if !settings.throughputCustomURL.isEmpty {
-                settings.throughputCustomURL = ""
-            }
+        if settings.throughputCustomURL != trimmed {
+            settings.throughputCustomURL = trimmed
         }
     }
 
@@ -117,7 +131,7 @@ struct ModulesSettingsView: View {
         case .cloudflare:
             return String(localized: "Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host.")
         case .custom:
-            return String(localized: "Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback.")
+            return String(localized: "Any HTTP or HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback.")
         }
     }
 
@@ -161,5 +175,73 @@ struct ModulesSettingsView: View {
         order.remove(at: current)
         order.insert(module, at: target)
         settings.popoverModuleOrder = order
+    }
+}
+
+/// Reusable Custom-URL row used by both the Latency and Throughput
+/// settings sections. Layout: standard `LabeledContent` with the
+/// label on the left and an HStack on the right that puts a tiny
+/// validation badge before the field. Putting the badge to the
+/// **left** of the field (instead of overlaying it on the trailing
+/// edge) is what keeps the bezel's right edge flush with the
+/// pickers / toggles above and below — and avoids the badge
+/// sitting on top of long URLs.
+private struct URLEntryRow: View {
+    let label: String
+    @Binding var text: String
+    let isValid: Bool
+    var focusBinding: FocusState<Bool>.Binding
+    var onCommit: () -> Void = {}
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 6) {
+                // Hide the validation badge while the field is being
+                // edited (kept in the layout via `opacity(0)` so the
+                // textfield doesn't jump). The status reappears after
+                // the user blurs — matches the "only validate on
+                // unfocus" expectation, no jittery live feedback.
+                ValidationBadge(isValid: isValid)
+                    .opacity(focusBinding.wrappedValue ? 0 : 1)
+                TextField("", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled(true)
+                    .focused(focusBinding)
+                    .frame(maxWidth: .infinity)
+                    .onSubmit {
+                        onCommit()
+                        focusBinding.wrappedValue = false
+                    }
+                    .onExitCommand {
+                        focusBinding.wrappedValue = false
+                    }
+            }
+        } label: {
+            Text(label)
+        }
+        // Auto-focus when the row appears so the user can start
+        // typing immediately after switching to `.custom` (or
+        // re-opening Settings).
+        .onAppear {
+            focusBinding.wrappedValue = true
+        }
+    }
+}
+
+private struct ValidationBadge: View {
+    let isValid: Bool
+
+    var body: some View {
+        Image(systemName: isValid
+              ? "checkmark.circle.fill"
+              : "exclamationmark.triangle.fill")
+            .foregroundStyle(isValid ? .green : .yellow)
+            .imageScale(.medium)
+            .help(isValid
+                  ? String(localized: "Valid URL")
+                  : String(localized: "Invalid URL"))
+            .accessibilityLabel(isValid
+                                ? String(localized: "Valid URL")
+                                : String(localized: "Invalid URL"))
     }
 }

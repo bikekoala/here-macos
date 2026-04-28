@@ -5,16 +5,27 @@ struct LatencySample: Sendable, Equatable, Identifiable, Codable {
     let at: Date
     /// Measured round-trip in milliseconds. `nil` means the probe timed out or errored.
     let latencyMs: Double?
+    /// `true` when the probe loop ticked but had no target to hit
+    /// (e.g. `.custom` selected with an empty/invalid URL). Visually
+    /// gray, excluded from stats — distinct from a real timeout/error
+    /// (`latencyMs == nil && !wasSkipped`) which collapses to red.
+    let wasSkipped: Bool
 
-    init(id: UUID = UUID(), at: Date = Date(), latencyMs: Double?) {
+    init(
+        id: UUID = UUID(),
+        at: Date = Date(),
+        latencyMs: Double?,
+        wasSkipped: Bool = false
+    ) {
         self.id = id
         self.at = at
         self.latencyMs = latencyMs
+        self.wasSkipped = wasSkipped
     }
 }
 
 enum LatencyBucket: Sendable {
-    case empty          // never probed
+    case empty          // never probed, or probe was skipped
     case good           // < greenMaxMs
     case moderate       // green..<yellow
     case slow           // yellow..<orange
@@ -22,6 +33,7 @@ enum LatencyBucket: Sendable {
 
     static func classify(_ sample: LatencySample?, thresholds: LatencyThresholds) -> LatencyBucket {
         guard let sample else { return .empty }
+        if sample.wasSkipped { return .empty }
         // Timeout / error collapses into the worst severity bucket (red).
         guard let ms = sample.latencyMs else { return .poor }
         if ms < thresholds.greenMaxMs { return .good }
@@ -37,30 +49,41 @@ struct LatencyThresholds: Sendable, Equatable {
     let orangeMaxMs: Double
 
     static let `default` = LatencyThresholds(
-        greenMaxMs: 500,
-        yellowMaxMs: 1000,
-        orangeMaxMs: 2000
+        greenMaxMs: 150,
+        yellowMaxMs: 300,
+        orangeMaxMs: 600
     )
 }
 
 enum LatencyProbeTarget: String, CaseIterable, Identifiable, Sendable {
-    case cloudflare     // https://1.1.1.1/
     case googleGenerate // https://www.gstatic.com/generate_204
+    case custom
 
     var id: String { rawValue }
 
-    var url: URL {
+    /// Preset URL for built-in targets. `nil` for `.custom` — the actual
+    /// URL lives in `SettingsStore.latencyCustomURL`.
+    var presetURL: URL? {
         switch self {
-        case .cloudflare: return URL(string: "https://1.1.1.1/cdn-cgi/trace")!
-        case .googleGenerate: return URL(string: "https://www.gstatic.com/generate_204")!
+        case .googleGenerate: return URL(string: "https://www.gstatic.com/generate_204")
+        case .custom:         return nil
         }
     }
 
     var label: String {
         switch self {
-        case .cloudflare:     String(localized: "Cloudflare (1.1.1.1)")
         case .googleGenerate: String(localized: "Google (gstatic.com)")
+        case .custom:         String(localized: "Custom URL")
         }
+    }
+
+    /// Resolve to a concrete `URL`. For `.custom` the supplied string
+    /// must be a valid `http://` or `https://` URL — otherwise returns
+    /// `nil` and the scheduler will simply skip the probe until the
+    /// user fixes it.
+    func resolveURL(customURL: String) -> URL? {
+        if let preset = presetURL { return preset }
+        return URL.fromUserCustomEndpoint(customURL)
     }
 }
 

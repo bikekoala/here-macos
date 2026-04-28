@@ -44,7 +44,7 @@ struct AboutView: View {
                 .pointerStyle(.link)
 
                 Button {
-                    if let url = URL(string: "https://github.com/bikekoala/ip-info") {
+                    if let url = URL(string: "https://github.com/bikekoala/here-macos") {
                         openURL(url)
                     }
                 } label: {

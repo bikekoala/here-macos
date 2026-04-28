@@ -41,7 +41,7 @@ final class LatencyScheduler {
 
     private func syncFromSettings() {
         let capacity = settings.latencySlotCount
-        let target = settings.latencyProbeTarget.url
+        let target = settings.latencyTargetURL
         Task { [service] in
             await service.setCapacity(capacity)
             await service.setTarget(target)
@@ -127,7 +127,7 @@ final class LatencyScheduler {
         let enabled: Bool
         let intervalSeconds: Int
         let slotCount: Int
-        let target: URL
+        let target: URL?
     }
 
     private func snapshot() -> SettingsSnapshot {
@@ -135,7 +135,7 @@ final class LatencyScheduler {
             enabled: settings.latencyEnabled,
             intervalSeconds: settings.latencyInterval.rawValue,
             slotCount: settings.latencySlotCount,
-            target: settings.latencyProbeTarget.url
+            target: settings.latencyTargetURL
         )
     }
 }

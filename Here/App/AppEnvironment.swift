@@ -31,7 +31,7 @@ final class AppEnvironment {
         let ipService = IPService(provider: IPGuideProvider(), cache: cache)
         let latencyService = LatencyService(
             capacity: settings.latencySlotCount,
-            target: settings.latencyProbeTarget.url
+            target: settings.latencyTargetURL
         )
         let historyService = IPHistoryService()
         let throughputService = ThroughputService()

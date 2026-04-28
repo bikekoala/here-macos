@@ -36,6 +36,21 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(latencyProbeTarget.rawValue, forKey: Keys.latencyProbeTarget) }
     }
 
+    /// HTTPS URL probed when `latencyProbeTarget == .custom`. Ignored
+    /// otherwise. Any reachable resource works — the probe issues a
+    /// HEAD and times the round trip.
+    var latencyCustomURL: String {
+        didSet { UserDefaults.standard.set(latencyCustomURL, forKey: Keys.latencyCustomURL) }
+    }
+
+    /// Concrete URL the latency probe should hit. Returns `nil` when
+    /// `.custom` is selected with an empty/invalid URL — the scheduler
+    /// then skips probing rather than recording timeouts against a
+    /// bogus host.
+    var latencyTargetURL: URL? {
+        latencyProbeTarget.resolveURL(customURL: latencyCustomURL)
+    }
+
     var latencyIntervalSeconds: Int {
         didSet { UserDefaults.standard.set(latencyIntervalSeconds, forKey: Keys.latencyIntervalSeconds) }
     }
@@ -67,11 +82,19 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(throughputEndpoint.rawValue, forKey: Keys.throughputEndpoint) }
     }
 
-    /// HTTPS URL of the file used when `throughputEndpoint == .custom`.
+    /// HTTP(S) URL of the file used when `throughputEndpoint == .custom`.
     /// Ignored otherwise. Any resource that responds 200 OK to a GET and
     /// delivers ≥ a few MB of body works.
     var throughputCustomURL: String {
         didSet { UserDefaults.standard.set(throughputCustomURL, forKey: Keys.throughputCustomURL) }
+    }
+
+    /// Concrete URL the throughput run should hit. `nil` only when
+    /// `.custom` is selected with an empty/invalid URL — in that case
+    /// the Run Test handler surfaces a failure rather than substituting
+    /// a preset.
+    var throughputTargetURL: URL? {
+        throughputEndpoint.resolveURL(customURL: throughputCustomURL)
     }
 
     var refreshInterval: RefreshInterval {
@@ -96,7 +119,8 @@ final class SettingsStore {
 
         self.latencyEnabled = defaults.object(forKey: Keys.latencyEnabled) as? Bool ?? true
         self.latencyProbeTarget = (defaults.string(forKey: Keys.latencyProbeTarget)
-            .flatMap(LatencyProbeTarget.init(rawValue:))) ?? .cloudflare
+            .flatMap(LatencyProbeTarget.init(rawValue:))) ?? .googleGenerate
+        self.latencyCustomURL = defaults.string(forKey: Keys.latencyCustomURL) ?? ""
         // Migration: if the stored seconds doesn't map to a current
         // LatencyInterval case (e.g. an older install that saved 10s/30s/120s
         // which have since been retired), fall through to the new default
@@ -146,6 +170,7 @@ final class SettingsStore {
         defaults.set(validRefreshInterval.rawValue, forKey: Keys.intervalSeconds)
         defaults.set(validLatencyInterval.rawValue, forKey: Keys.latencyIntervalSeconds)
         defaults.set(self.latencySlotCount, forKey: Keys.latencySlotCount)
+        defaults.set(self.latencyProbeTarget.rawValue, forKey: Keys.latencyProbeTarget)
     }
 
     private static func mergeWithDefaults(_ saved: [PopoverModule]) -> [PopoverModule] {
@@ -169,6 +194,7 @@ final class SettingsStore {
         static let refreshOnNetworkChange = "refresh.onNetworkChange"
         static let latencyEnabled = "latency.enabled"
         static let latencyProbeTarget = "latency.target"
+        static let latencyCustomURL = "latency.customURL"
         static let latencyIntervalSeconds = "latency.intervalSeconds"
         static let latencySlotCount = "latency.slotCount"
         static let widgetLatencyAlert = "widget.latencyAlert"

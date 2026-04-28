@@ -49,7 +49,7 @@
 "Interval" = "Interval";
 "Slots" = "Slots";
 "Red border on poor latency" = "Red border on poor latency";
-"Turn the menu bar pill border red when a probe times out or exceeds 2 s." = "Turn the menu bar pill border red when a probe times out or exceeds 2 s.";
+"Turn the menu bar pill border red when a probe times out or exceeds 600 ms." = "Turn the menu bar pill border red when a probe times out or exceeds 600 ms.";
 "Source" = "Source";
 "URL" = "URL";
 "Cachefly (100 MB)" = "Cachefly (100 MB)";
@@ -57,8 +57,10 @@
 "Custom URL" = "Custom URL";
 "Downloads a 100 MB test file from Cachefly's CDN. Widest global reach; default." = "Downloads a 100 MB test file from Cachefly's CDN. Widest global reach; default.";
 "Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host." = "Downloads 100 MB from speed.cloudflare.com. Blocked on some networks that SNI-filter Cloudflare's speed test host.";
-"Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback." = "Any HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback.";
+"Any HTTP or HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback." = "Any HTTP or HTTPS file works. Larger files (≥ 10 MB) give a more stable reading. Blank or invalid URLs produce an error — no silent fallback.";
 "Custom URL isn't a valid https:// URL." = "Custom URL isn't a valid https:// URL.";
+"Invalid URL" = "Invalid URL";
+"Valid URL" = "Valid URL";
 
 /* Popover — Location card */
 "Copy" = "Copy";
@@ -84,8 +86,8 @@
 "avg" = "avg";
 "max" = "max";
 "no data" = "no data";
+"no target" = "no target";
 "timeout" = "timeout";
-"Cloudflare (1.1.1.1)" = "Cloudflare (1.1.1.1)";
 "Google (gstatic.com)" = "Google (gstatic.com)";
 
 /* Popover — History card */

@@ -250,6 +250,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let style: CountryStyle
         let latencyEnabled: Bool
         let widgetLatencyAlert: Bool
+        let latencyTargetActive: Bool
     }
 
     private func settingsSnapshot() -> SettingsSnapshot {
@@ -257,18 +258,24 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             show: environment.settings.showMode,
             style: environment.settings.countryStyle,
             latencyEnabled: environment.settings.latencyEnabled,
-            widgetLatencyAlert: environment.settings.widgetLatencyAlert
+            widgetLatencyAlert: environment.settings.widgetLatencyAlert,
+            latencyTargetActive: environment.settings.latencyTargetURL != nil
         )
     }
 
     /// Border tint for the pill. Binary: neutral most of the time, red
     /// only when the most recent latency probe landed in `.poor`
-    /// (timeout or > 2 s — effectively "network isn't working"). The
+    /// (timeout or > 600 ms — effectively "network isn't working"). The
     /// healthy tiers intentionally don't colour the border; an
     /// always-coloured pill is too noisy in the menu bar.
+    ///
+    /// When the user picks `.custom` but leaves the URL blank/invalid we
+    /// stop probing — the last bucket from the previous target is now
+    /// stale, so suppress the alert until probes resume.
     private func currentBorderTint() -> StatusBarTitleRenderer.BorderTint {
         guard environment.settings.latencyEnabled,
               environment.settings.widgetLatencyAlert,
+              environment.settings.latencyTargetURL != nil,
               latestLatencyBucket == .poor
         else { return .neutral }
         return .alert

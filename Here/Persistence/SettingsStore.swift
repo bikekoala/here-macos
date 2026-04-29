@@ -11,21 +11,8 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(countryStyle.rawValue, forKey: Keys.countryStyle) }
     }
 
-    var refreshIntervalSeconds: Int {
-        didSet { UserDefaults.standard.set(refreshIntervalSeconds, forKey: Keys.intervalSeconds) }
-    }
-
     var launchAtLogin: Bool {
         didSet { UserDefaults.standard.set(launchAtLogin, forKey: Keys.launchAtLogin) }
-    }
-
-    /// When true, the `RefreshScheduler` triggers an IP refresh on any
-    /// meaningful network event (interface switch, path change, proxy
-    /// config flip) in addition to the periodic timer. Cheap — just
-    /// another `GET /` against ip.guide — and keeps the panel accurate
-    /// after WiFi hops, VPN toggles, Clash mode switches.
-    var refreshOnNetworkChange: Bool {
-        didSet { UserDefaults.standard.set(refreshOnNetworkChange, forKey: Keys.refreshOnNetworkChange) }
     }
 
     var latencyEnabled: Bool {
@@ -97,11 +84,6 @@ final class SettingsStore {
         throughputEndpoint.resolveURL(customURL: throughputCustomURL)
     }
 
-    var refreshInterval: RefreshInterval {
-        get { RefreshInterval(rawValue: refreshIntervalSeconds) ?? .m5 }
-        set { refreshIntervalSeconds = newValue.rawValue }
-    }
-
     var latencyInterval: LatencyInterval {
         get { LatencyInterval(rawValue: latencyIntervalSeconds) ?? .s60 }
         set { latencyIntervalSeconds = newValue.rawValue }
@@ -110,12 +92,12 @@ final class SettingsStore {
     init(defaults: UserDefaults = .standard) {
         self.showMode = (defaults.string(forKey: Keys.showMode).flatMap(ShowMode.init(rawValue:))) ?? .both
         self.countryStyle = (defaults.string(forKey: Keys.countryStyle).flatMap(CountryStyle.init(rawValue:))) ?? .flag
-        // Migration: coerce retired options (e.g. 30 s) onto a current case.
-        let stored = defaults.integer(forKey: Keys.intervalSeconds)
-        let validRefreshInterval = RefreshInterval(rawValue: stored) ?? .m5
-        self.refreshIntervalSeconds = validRefreshInterval.rawValue
+        // (Retired v0.29.0): refresh-interval picker. The IP refresh
+        // cadence is now hardcoded at 5 s in `RefreshScheduler`. Any
+        // legacy `refresh.intervalSeconds` value sitting in
+        // UserDefaults is ignored. We don't actively wipe it — it's
+        // a small int and harmless dormant data.
         self.launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
-        self.refreshOnNetworkChange = defaults.object(forKey: Keys.refreshOnNetworkChange) as? Bool ?? true
 
         self.latencyEnabled = defaults.object(forKey: Keys.latencyEnabled) as? Bool ?? true
         self.latencyProbeTarget = (defaults.string(forKey: Keys.latencyProbeTarget)
@@ -167,7 +149,6 @@ final class SettingsStore {
         // still sit in UserDefaults in their pre-migration form and would
         // migrate again on every launch. Write the canonical values back
         // explicitly so the next launch reads them as already-valid.
-        defaults.set(validRefreshInterval.rawValue, forKey: Keys.intervalSeconds)
         defaults.set(validLatencyInterval.rawValue, forKey: Keys.latencyIntervalSeconds)
         defaults.set(self.latencySlotCount, forKey: Keys.latencySlotCount)
         defaults.set(self.latencyProbeTarget.rawValue, forKey: Keys.latencyProbeTarget)
@@ -189,9 +170,11 @@ final class SettingsStore {
     private enum Keys {
         static let showMode = "displayStyle.show"
         static let countryStyle = "displayStyle.country"
-        static let intervalSeconds = "refresh.intervalSeconds"
         static let launchAtLogin = "launchAtLogin"
-        static let refreshOnNetworkChange = "refresh.onNetworkChange"
+        // (Retired): `refresh.intervalSeconds` (v0.29.0 — hardcoded 5 s),
+        // `refresh.onNetworkChange` (v0.28.0 — short polling subsumed it).
+        // Old keys left dormant in UserDefaults; harmless, not worth a
+        // migration to wipe.
         static let latencyEnabled = "latency.enabled"
         static let latencyProbeTarget = "latency.target"
         static let latencyCustomURL = "latency.customURL"

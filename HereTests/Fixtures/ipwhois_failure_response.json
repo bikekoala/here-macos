@@ -1,0 +1,17 @@
+{
+  "ip": "0.0.0.0",
+  "success": false,
+  "message": "Invalid IP address",
+  "country": "",
+  "country_code": "",
+  "city": null,
+  "latitude": 0,
+  "longitude": 0,
+  "connection": {
+    "asn": 0,
+    "org": ""
+  },
+  "timezone": {
+    "id": "UTC"
+  }
+}

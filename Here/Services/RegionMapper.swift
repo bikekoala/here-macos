@@ -22,7 +22,7 @@ struct AppleReverseGeocoder: ReverseGeocoding {
 actor RegionMapper {
     private struct Key: Hashable {
         let country: String
-        let city: String
+        let city: String?
     }
 
     private let geocoder: ReverseGeocoding
@@ -43,7 +43,9 @@ actor RegionMapper {
             return normalized
         }
 
-        let fallback = Self.cityInitials(model.location.city)
+        // No city → no initials, just country code (e.g. "HK") as
+        // the region tag. cityInitials("") would otherwise return "??".
+        let fallback = model.location.city.map(Self.cityInitials) ?? model.countryAlpha2
         memoryCache[key] = fallback
         return fallback
     }

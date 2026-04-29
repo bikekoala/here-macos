@@ -1,8 +1,8 @@
 # Here — AI Assistant Notes
 
-Long-term menu bar macOS app showing your current egress country/region from https://ip.guide.
+Long-term menu bar macOS app showing your current egress country/region. Default IP-lookup provider: **ipwho.is** (since v0.26.0; previously ip.guide v0.23.x–v0.25.x). The lookup layer is provider-pluggable — see `Here/Networking/IPProvider.swift`.
 
-(Originally shipped as "IP Guide" through v0.23.x; renamed to **Here** at v0.24.0. The data source is unchanged.)
+(Originally shipped as "IP Guide" through v0.23.x; renamed to **Here** at v0.24.0. Default provider switched to ipwho.is at v0.26.0 because ip.guide silently misreported VPN egresses — Korean nodes shown as Cyprus, etc.)
 
 ## Architecture at a glance
 
@@ -10,7 +10,7 @@ Long-term menu bar macOS app showing your current egress country/region from htt
 - `AppDelegate` builds `AppEnvironment` + `StatusBarController`
 - `StatusBarController` owns `NSStatusItem` + `NSPopover` (AppKit-managed)
 - Popover content rendered with SwiftUI via `NSHostingController`
-- All ip.guide networking in `IPService` (actor); emits `IPState` via `AsyncStream`
+- All IP-lookup networking flows through `IPService` (actor) → an `IPProvider` (`IPWhoIsProvider` is the default); emits `IPState` via `AsyncStream`. Each provider owns its own raw-response shape and a `map(_:)` adapter into the shared `IPDataModel` — swapping providers is mechanical, not a UI / cache rewrite.
 - Network state change detection split across two observers:
   - `NetworkMonitor` — `NWPathMonitor`, for online/offline + interface-type shifts + same-type path updates (debounced)
   - `SystemNetworkObserver` — `SCDynamicStore` watching `State:/Network/Global/IPv4`, `…/DNS`, `…/Proxies`; catches WiFi-SSID changes and Clash "system proxy" flips that NWPathMonitor doesn't surface
@@ -47,14 +47,16 @@ Install full Xcode from the Mac App Store or developer.apple.com. `xcode-select 
 
 - `NWPathMonitor` doesn't reliably fire `pathUpdateHandler` for same-interface-type changes (WiFi-A → WiFi-B on the same `en0`). That's why `SystemNetworkObserver` exists alongside it. Don't collapse them into one source; each catches what the other misses.
 - `SMAppService.mainApp.register()` works from any signed bundle path on macOS 13+, including Debug builds running from DerivedData. Earlier-era "must live in /Applications" guidance is no longer accurate; don't re-add that gate. Surface registration errors inline only when `register()` actually throws.
-- `ip.guide` returns no ISO 3166-2 region code. `RegionMapper` uses `CLGeocoder` with a city-initials fallback. See `Services/RegionMapper.swift` for the ordering.
+- IP providers don't ship ISO 3166-2 region codes. `RegionMapper` uses `CLGeocoder` with a city-initials fallback. See `Services/RegionMapper.swift` for the ordering.
 - Flag emoji for Taiwan (TW) may render as "TW" text on some system configurations — offer text fallback via `CountryStyle.text`.
-- `IPDataModel.countryAlpha2` derives from `location.country` (geographic), NOT `network.autonomousSystem.country` (ASN registration, often HK for Asian VPN providers). `CountryNameMapper` handles the English-country-name → alpha-2 lookup. Don't "simplify" by going back to the ASN country — the TW-shown-as-HK bug came from that.
+- `IPDataModel.countryAlpha2` is a **stored** field, populated by each provider's `map(_:)` adapter. `IPWhoIsProvider` reads `country_code` directly from the wire payload — there's no English-name lookup in the model layer anymore. (We *did* have a `CountryNameMapper` for the ip.guide era; deleted in v0.26.0 along with `IPGuideProvider`.) When adding a future provider, the rule is: provider returns alpha-2; don't push name-lookup logic into the model.
+- Never "fall back" to ASN-registered country for the flag — VPN ASNs routinely register in a different country than their actual egress (NL-registered AS serving KR users, HK-registered AS serving TW users). Use `location` data from the provider; if the provider lies, switch providers.
 - `CLGeocoder` is rate-limited by Apple; always rely on `RegionMapper`'s in-actor cache before issuing a new request.
-- `IPService` does **not** retry internally (single attempt per `refresh()` call). The scheduler is the retry layer — via periodic timer + network events. Don't re-add exponential backoff inside IPService; a failed fetch for an unreachable ip.guide would hammer the host for ~45 s.
+- `IPService` does **not** retry internally (single attempt per `refresh()` call). The scheduler is the retry layer — via periodic timer + network events. Don't re-add exponential backoff inside IPService; a failed fetch for an unreachable upstream would hammer the host for ~45 s.
 - `RefreshScheduler` coalesce is **snapshot-scoped**, not purely time-based. A time-only "post-error cooldown" blocks genuine re-switches to a different network. The scheduler reads `systemNetworkObserver.primaryIPv4Snapshot()` and only suppresses events whose snapshot matches the one that last failed.
 - `NSPopover` `.transient` dismiss timing can be flaky under focus steal. If reported, look at `NSEvent.addGlobalMonitorForEvents` as a workaround.
 - The hand-written `project.pbxproj` uses a consistent ID scheme (`AA0000...`). When Xcode adds new files, it inserts its own UUIDs — fine; don't try to enforce the old scheme.
+- The popover anchors to an **invisible NSWindow** rather than directly to the menu-bar button (see `StatusBarController.openPopover`). This is the workaround for NSPopover sliding sideways when the widget reflows. **Re-verify on every macOS major upgrade**: open popover → click refresh several times → popover must stay put. If it drifts even one pixel, the workaround has regressed and we need to fall back to a custom NSPanel implementation.
 
 ## Where things live
 
@@ -77,7 +79,7 @@ Install full Xcode from the Mac App Store or developer.apple.com. `xcode-select 
 
 - IPv6 dual stack
 - Swift Charts sparkline for latency history
-- Multiple IP providers with failover
+- Multiple IP providers with failover (architecture is in place — `IPProvider` protocol with `map(_:)` adapters; just need a Settings picker + voting/fallback logic in `IPService`)
 - App Intents / Shortcuts integration
 - Chinese localization (scaffolding is ready; only translation pending)
 - Sparkle auto-updater for notarized distribution
@@ -112,4 +114,5 @@ Release body template:
 
 ## Reference
 
-- API: `GET https://ip.guide/` returns `{ ip, network, location }` JSON (no auth)
+- Default provider: `GET https://ipwho.is/` — free, no auth, ~1 req/s per client IP. Returns `{ ip, success, country, country_code, city, latitude, longitude, connection: { asn, org, isp, domain }, timezone: { id, ... }, ... }`. On invalid input or rate-limit, returns HTTP 200 with `{"success": false, "message": "..."}` — `IPWhoIsProvider` translates that into `IPServiceError.transport`.
+- The legacy ip.guide schema is preserved in git history if you need to compare; don't re-add it without a strong reason — it was unreliable for VPN egress IPs.

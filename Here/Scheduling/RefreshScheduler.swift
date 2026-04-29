@@ -1,95 +1,104 @@
+import AppKit
 import Foundation
 
+/// Drives `IPService.refresh()` on a periodic loop.
+///
+/// Cadence is hardcoded — 5 s when the user is plausibly looking
+/// at the screen, slowed to 30 s when the display is asleep. The
+/// previous user-configurable picker (5 s / 1 min / 5 min) was
+/// removed in v0.29.0: with the SCDynamicStore-driven network
+/// observer gone, longer polling intervals would leave the widget
+/// silently stale through proxy / VPN / WiFi changes for minutes
+/// at a time, which contradicts the app's purpose. Hardcoding the
+/// fast path keeps the UX consistent.
+///
+/// Auxiliary inputs:
+/// - `NetworkMonitor` (NWPathMonitor): when the link drops we stop
+///   firing requests and flip IPState to `.offline`; recovery on
+///   `becameReachable` triggers a forced fetch.
+/// - `SleepWakeObserver`: pauses the loop on lid-close so we don't
+///   accumulate work, kicks a forced refresh on lid-open.
+/// - `NSWorkspace` screen-sleep/wake: throttles the loop while
+///   the display is off (B1: don't poll fast on a sleeping screen).
 @MainActor
 final class RefreshScheduler {
     private let ipService: IPService
-    private let settings: SettingsStore
     private let networkMonitor: NetworkMonitor
     private let sleepWakeObserver: SleepWakeObserver
-    private let systemNetworkObserver: SystemNetworkObserver
 
     private var loopTask: Task<Void, Never>?
     private var networkTask: Task<Void, Never>?
-    private var systemNetworkTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
-    private var settingsTask: Task<Void, Never>?
+    private var screenSleepObserver: NSObjectProtocol?
+    private var screenWakeObserver: NSObjectProtocol?
 
-    /// Last time a network/proxy-driven refresh actually fired, plus the
-    /// snapshot it was fired against. Used to collapse bursts — an
-    /// interfaceChanged + pathChanged + systemStateChanged trio from a
-    /// single network change all land within a few seconds and carry
-    /// the same snapshot, so only the first fires.
-    private var lastNetworkTriggeredRefresh: Date = .distantPast
-    private var lastNetworkTriggeredSnapshot: String = ""
+    /// `true` while the display is awake. Flipped by the NSWorkspace
+    /// screen-sleep / -wake notifications. Read by the polling loop
+    /// to decide between active and idle cadence.
+    private var displayAwake = true
 
-    /// Last time a network-triggered refresh ended in `.error`, plus
-    /// the network-plane snapshot it was made against. Suppression is
-    /// scoped to that snapshot: if the user switches to a genuinely
-    /// different network, the next event fires normally instead of
-    /// being coalesced as "retry noise". Manual refresh bypasses this —
-    /// it calls `triggerNow()` directly, not through this path.
-    private var lastFailedNetworkRefresh: Date = .distantPast
-    private var lastFailedSnapshot: String = ""
-
-    /// Minimum gap between two network-triggered refreshes during normal
-    /// operation. Narrow — a single network change typically emits
-    /// systemStateChanged + interfaceChanged + pathChanged within a few seconds
-    /// and we want one refresh per change, not three.
-    private static let networkRefreshCoalesceWindow: TimeInterval = 5
-
-    /// After a network-triggered refresh fails, ignore further network
-    /// events for this long. Prevents the "I switched networks, it
-    /// loaded, failed, and then started loading again by itself" pattern
-    /// — the user explicitly doesn't want retries. Long enough to
-    /// absorb the tail of a network-settling event storm; short enough
-    /// that if the user deliberately switches to a working node after
-    /// waiting, the next change still triggers a fresh attempt.
-    private static let postErrorCooldown: TimeInterval = 30
+    private static let activeInterval: TimeInterval = 5
+    private static let idleInterval: TimeInterval = 30
 
     init(
         ipService: IPService,
-        settings: SettingsStore,
         networkMonitor: NetworkMonitor,
-        sleepWakeObserver: SleepWakeObserver,
-        systemNetworkObserver: SystemNetworkObserver
+        sleepWakeObserver: SleepWakeObserver
     ) {
         self.ipService = ipService
-        self.settings = settings
         self.networkMonitor = networkMonitor
         self.sleepWakeObserver = sleepWakeObserver
-        self.systemNetworkObserver = systemNetworkObserver
     }
 
     func start() {
+        observeScreenPower()
         restartLoop()
         observeNetworkEvents()
-        observeSystemNetworkEvents()
         observeWakeEvents()
-        observeSettingsChanges()
     }
 
     func stop() {
         loopTask?.cancel(); loopTask = nil
         networkTask?.cancel(); networkTask = nil
-        systemNetworkTask?.cancel(); systemNetworkTask = nil
         wakeTask?.cancel(); wakeTask = nil
-        settingsTask?.cancel(); settingsTask = nil
+        if let obs = screenSleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+            screenSleepObserver = nil
+        }
+        if let obs = screenWakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+            screenWakeObserver = nil
+        }
     }
 
+    /// Manual refresh (e.g. the popover's refresh button). Bypasses
+    /// IPService's 5-second `minimumGap` so the user always gets a
+    /// fresh fetch when they ask for one — they're explicitly
+    /// invoking the action, not riding the loop. Loud (not silent):
+    /// the popover's spinner / blur overlay is the user-visible
+    /// "we heard you" feedback for the click.
     func triggerNow() {
         Task { [ipService] in await ipService.refresh(force: true) }
     }
 
+    // MARK: - Polling loop
+
+    private var currentInterval: TimeInterval {
+        displayAwake ? Self.activeInterval : Self.idleInterval
+    }
+
     private func restartLoop() {
         loopTask?.cancel()
-        let interval = settings.refreshInterval.seconds
-        Log.scheduler.info("Loop restarting with interval \(interval, privacy: .public)s")
+        Log.scheduler.info(
+            "Loop restarting (interval \(self.currentInterval, privacy: .public)s, displayAwake \(self.displayAwake, privacy: .public))"
+        )
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(interval))
-                } catch { break }
                 guard let self else { break }
+                let sleepFor = self.currentInterval
+                do {
+                    try await Task.sleep(for: .seconds(sleepFor))
+                } catch { break }
                 await self.tickIfOnline()
             }
         }
@@ -100,8 +109,16 @@ final class RefreshScheduler {
             Log.scheduler.debug("Skipping tick; offline")
             return
         }
-        await ipService.refresh()
+        // `silent: true` — at 5-second cadence the popover would
+        // otherwise flicker its spinner-and-blur overlay every 5 s
+        // and the menu-bar widget would reroll its placeholder
+        // random flag through every cycle's `.loading` emission.
+        // For background polling that's both ugly and useless: the
+        // user didn't ask for a check, they shouldn't notice one.
+        await ipService.refresh(silent: true)
     }
+
+    // MARK: - Auxiliary observers
 
     private func observeNetworkEvents() {
         networkTask?.cancel()
@@ -110,102 +127,27 @@ final class RefreshScheduler {
             for await event in stream {
                 guard let self else { return }
                 switch event {
-                case .becameReachable, .interfaceChanged, .pathChanged:
-                    guard settings.refreshOnNetworkChange else { continue }
-                    await fireNetworkTriggeredRefresh(
-                        reason: String(describing: event)
-                    )
+                case .becameReachable:
+                    // Network came back — fire one immediate refresh so
+                    // the popover reflects the new plane without waiting
+                    // up to one tick. Silent because this is a system-
+                    // driven refresh, not user-driven.
+                    await ipService.refresh(force: true, silent: true)
                 case .becameUnreachable:
-                    // Airplane mode, link down, fully offline. No point
-                    // issuing a fetch URLSession will reject instantly;
-                    // just put the state machine in `.error(.offline)`
-                    // so the widget stops asserting the cached flag.
-                    // Reset our failure snapshot so the next reachable
-                    // event (new network plane) isn't locked out by
-                    // post-error cooldown.
+                    // Airplane mode, link down, fully offline. Drop
+                    // straight into `.error(.offline)` instead of
+                    // letting the next URLSession call time out —
+                    // saves the user a round-trip's wait for an
+                    // answer the kernel already knows.
                     await ipService.forceOffline()
-                    lastFailedSnapshot = ""
-                    lastFailedNetworkRefresh = .distantPast
+                case .interfaceChanged, .pathChanged:
+                    // Normal network mutations (WiFi SSID hop, VPN
+                    // up/down, proxy toggle). At a 5 s loop cadence
+                    // we'd see them within one tick anyway, but
+                    // firing immediately removes the lag.
+                    await ipService.refresh(force: true, silent: true)
                 }
             }
-        }
-    }
-
-    private func observeSystemNetworkEvents() {
-        systemNetworkTask?.cancel()
-        systemNetworkTask = Task { [weak self] in
-            guard let stream = self?.systemNetworkObserver.events() else { return }
-            for await _ in stream {
-                guard let self else { return }
-                guard settings.refreshOnNetworkChange else { continue }
-                await fireNetworkTriggeredRefresh(reason: "systemStateChanged")
-            }
-        }
-    }
-
-    /// Coalesce network-triggered refreshes. Both gates are scoped to
-    /// the network-plane snapshot (`<interface>:<router>`) — same
-    /// snapshot = noise from one settling change, different snapshot =
-    /// a genuine re-switch that deserves its own probe.
-    ///
-    ///  1. Post-error cooldown: once a refresh failed *on a given
-    ///     snapshot*, further events carrying the *same* snapshot
-    ///     within 30 s are skipped. Switching to a different network
-    ///     (different snapshot) fires through immediately.
-    ///  2. Burst coalesce: a single network change often emits
-    ///     multiple events within a few seconds. Same-snapshot events
-    ///     inside a 5 s window are collapsed into the first refresh.
-    ///     A different snapshot — e.g. the user switched again while
-    ///     we were still loading the previous one — is never
-    ///     coalesced, so the new state gets its own probe as soon as
-    ///     the in-flight fetch returns.
-    private func fireNetworkTriggeredRefresh(reason: String) async {
-        let now = Date()
-        let snapshot = systemNetworkObserver.primaryIPv4Snapshot()
-
-        let inErrorCooldown = !lastFailedSnapshot.isEmpty
-            && lastFailedSnapshot == snapshot
-            && now.timeIntervalSince(lastFailedNetworkRefresh) < Self.postErrorCooldown
-        if inErrorCooldown {
-            Log.scheduler.info(
-                "Post-error cooldown (same snapshot) — skipping \(reason, privacy: .public)"
-            )
-            return
-        }
-        let inBurst = !lastNetworkTriggeredSnapshot.isEmpty
-            && lastNetworkTriggeredSnapshot == snapshot
-            && now.timeIntervalSince(lastNetworkTriggeredRefresh)
-                < Self.networkRefreshCoalesceWindow
-        if inBurst {
-            Log.scheduler.debug(
-                "Burst coalesce (same snapshot) → skip \(reason, privacy: .public)"
-            )
-            return
-        }
-        lastNetworkTriggeredRefresh = now
-        lastNetworkTriggeredSnapshot = snapshot
-        Log.scheduler.info("Network event → refresh (\(reason, privacy: .public))")
-
-        // Flip the state to `.loading(cached:)` BEFORE the settling wait
-        // so the widget + popover reflect "re-checking" as soon as the
-        // event arrives — otherwise the UI keeps rendering the prior
-        // `.error(.offline)` for 2 s after the network returns, which
-        // reads as the app ignoring the change.
-        await ipService.beginLoadingPlaceholder()
-
-        // Give URLSession's DNS + connection cache a beat to notice the
-        // new network plane before hitting ip.guide.
-        try? await Task.sleep(for: .seconds(2))
-
-        let state = await ipService.refresh(force: true)
-        if case .error = state {
-            lastFailedNetworkRefresh = Date()
-            lastFailedSnapshot = snapshot
-            Log.scheduler.info(
-                "Refresh failed — 30 s cooldown armed for snapshot \(snapshot, privacy: .public)"
-            )
-        } else {
-            lastFailedSnapshot = ""
         }
     }
 
@@ -217,9 +159,13 @@ final class RefreshScheduler {
                 guard let self else { return }
                 switch event {
                 case .didWake:
+                    // Brief settle to let the link/DHCP/DNS come back
+                    // before we hit the network. Silent — wake is a
+                    // system event, not a user request, so the popover
+                    // shouldn't pop a loading overlay on every lid-open.
                     try? await Task.sleep(for: .seconds(1.5))
                     self.restartLoop()
-                    await ipService.refresh(force: true)
+                    await ipService.refresh(force: true, silent: true)
                 case .willSleep:
                     loopTask?.cancel()
                 }
@@ -227,18 +173,40 @@ final class RefreshScheduler {
         }
     }
 
-    private func observeSettingsChanges() {
-        settingsTask?.cancel()
-        settingsTask = Task { [weak self] in
-            guard let self else { return }
-            var lastInterval = settings.refreshInterval
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                let current = settings.refreshInterval
-                if current != lastInterval {
-                    lastInterval = current
-                    self.restartLoop()
-                }
+    /// Listen for display-sleep / display-wake. When the user's
+    /// screen turns off (idle timeout, manual lock, lid close on
+    /// clamshell), the polling loop drops to a 30 s cadence — there's
+    /// no one looking, no point hammering ipwho.is and the network
+    /// stack at full speed.
+    ///
+    /// Distinct from `SleepWakeObserver`, which handles full system
+    /// sleep (hibernate / suspend). Display sleep is the much more
+    /// common case for laptops.
+    private func observeScreenPower() {
+        let center = NSWorkspace.shared.notificationCenter
+        screenSleepObserver = center.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.displayAwake = false
+                Log.scheduler.info("Display slept — slowing poll to \(Self.idleInterval, privacy: .public)s")
+                self.restartLoop()
+            }
+        }
+        screenWakeObserver = center.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.displayAwake = true
+                Log.scheduler.info("Display woke — speeding poll to \(Self.activeInterval, privacy: .public)s")
+                self.restartLoop()
+                await self.ipService.refresh(force: true, silent: true)
             }
         }
     }

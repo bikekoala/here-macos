@@ -42,7 +42,13 @@ struct IPHeroView: View {
     }
 
     private var headerText: String {
-        "\(model.location.country) · \(model.location.city)"
+        // City is Optional because city-state egresses (HK, SG, etc.)
+        // come back without one. Drop the " · city" suffix in that
+        // case rather than rendering "Hong Kong · ".
+        if let city = model.location.city, !city.isEmpty {
+            return "\(model.location.country) · \(city)"
+        }
+        return model.location.country
     }
 
     @ViewBuilder
@@ -66,11 +72,11 @@ struct IPHeroView: View {
         .contentShape(Rectangle())
         .pointerStyle(.link)
         .onTapGesture {
-            if let url = URL(string: "https://ip.guide/") {
+            if let url = URL(string: "https://ip-api.com/") {
                 openURL(url)
             }
         }
-        .help(String(localized: "Open ip.guide in browser"))
+        .help(String(localized: "Open ip-api.com in browser"))
     }
 
     private func copyIP() {

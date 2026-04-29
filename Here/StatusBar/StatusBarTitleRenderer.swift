@@ -105,7 +105,17 @@ enum StatusBarTitleRenderer {
         let hPadding: CGFloat = 4
 
         let contentWidth = flagSize.width + spacing + textSize.width
-        let contentHeight = max(flagSize.height, textSize.height)
+        // Floor the content height to the font's natural line box,
+        // even when there's no text. Without this floor, a flag-only
+        // pill (`countryOnly` + `flag` style) collapses to the flag's
+        // own 10 pt height — and with `vPadding = 1` the flag ends up
+        // visually flush with the pill border (no top/bottom margin).
+        // Using the font line-height as the baseline keeps all four
+        // mode permutations the same overall pill size, so the flag
+        // gets the same centred breathing room whether text is
+        // beside it or not.
+        let baselineHeight = ceil(font.boundingRectForFont.height)
+        let contentHeight = max(flagSize.height, textSize.height, baselineHeight)
 
         guard contentWidth > 0, contentHeight > 0 else { return nil }
 

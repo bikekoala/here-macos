@@ -5,27 +5,6 @@ import Testing
 
 @Suite("IPService")
 struct IPServiceTests {
-    private func samplePayload() -> Data {
-        let json = """
-        {
-          "ip": "1.2.3.4",
-          "network": {
-            "cidr": "1.2.3.0/24",
-            "hosts": { "start": "1.2.3.1", "end": "1.2.3.254" },
-            "autonomous_system": {
-              "asn": 1, "name": "X", "organization": "X",
-              "country": "US", "rir": "ARIN"
-            }
-          },
-          "location": {
-            "city": "Here", "country": "US", "timezone": "UTC",
-            "latitude": 0, "longitude": 0
-          }
-        }
-        """
-        return Data(json.utf8)
-    }
-
     private func ephemeralCache() -> IPCache {
         IPCache(fileURL: FileManager.default.temporaryDirectory
             .appendingPathComponent("HereTests")
@@ -63,12 +42,30 @@ struct IPServiceTests {
         var attemptCount: Int { counter.count }
     }
 
-    private func sampleModel() throws -> IPDataModel {
-        try JSONDecoder().decode(IPDataModel.self, from: samplePayload())
+    /// Build a synthetic `IPDataModel` directly via memberwise init.
+    /// The model is no longer the JSON wire format of any provider —
+    /// providers each own their own raw shape and a `map(_:)` adapter,
+    /// so tests construct the domain model literally.
+    private func sampleModel() -> IPDataModel {
+        IPDataModel(
+            ip: "1.2.3.4",
+            countryAlpha2: "US",
+            network: .init(
+                cidr: "1.2.3.0/24",
+                autonomousSystem: .init(
+                    asn: 1, name: "X", organization: "X",
+                    country: "US", rir: "ARIN"
+                )
+            ),
+            location: .init(
+                city: "Here", country: "United States",
+                timezone: "UTC", latitude: 0, longitude: 0
+            )
+        )
     }
 
     @Test func successEmitsLoadedState() async throws {
-        let model = try sampleModel()
+        let model = sampleModel()
         let provider = StubProvider(pages: [.success(model)])
         let service = IPService(provider: provider, cache: ephemeralCache())
         let state = await service.refresh(force: true)
@@ -116,7 +113,7 @@ struct IPServiceTests {
 
     @Test func errorStateFallsBackToCache() async throws {
         let cache = ephemeralCache()
-        let prev = try sampleModel()
+        let prev = sampleModel()
         _ = cache.save(.init(model: prev, fetchedAt: Date()))
         let provider = StubProvider(pages: [.failure(.http(statusCode: 500))])
         let service = IPService(provider: provider, cache: cache)

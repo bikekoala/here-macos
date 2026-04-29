@@ -8,6 +8,10 @@
 	<string>Here</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -17,9 +21,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.25.0</string>
+	<string>0.29.3</string>
 	<key>CFBundleVersion</key>
-	<string>73</string>
+	<string>94</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -30,7 +34,7 @@
 	<dict>
 		<!-- Custom URL fields (Latency / Throughput) accept user-entered
 		     `http://` endpoints; without this, URLSession would block
-		     them. ip.guide and the built-in CDN presets are all https,
+		     them. ipwho.is and the built-in CDN presets are all https,
 		     so this only relaxes connections the user explicitly opts
 		     in to by typing an http URL. -->
 		<key>NSAllowsArbitraryLoads</key>

@@ -13,9 +13,9 @@ struct RegionMapperTests {
                              countryName: String = "United States") -> IPDataModel {
         IPDataModel(
             ip: "1.2.3.4",
+            countryAlpha2: country,
             network: .init(
                 cidr: "1.2.3.0/24",
-                hosts: .init(start: "1.2.3.1", end: "1.2.3.254"),
                 autonomousSystem: .init(
                     asn: 1, name: "X", organization: "X",
                     country: country, rir: "ARIN"

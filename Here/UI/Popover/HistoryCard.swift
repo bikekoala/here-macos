@@ -219,7 +219,7 @@ struct HistoryCard: View {
                     .font(.system(.caption, design: .monospaced).weight(.medium))
                     .textSelection(.enabled)
                 Text("·").foregroundStyle(.tertiary)
-                Text("\(event.countryName) · \(event.city)")
+                Text(locationText(for: event))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -276,7 +276,17 @@ struct HistoryCard: View {
         let prefix = isCurrent
             ? String(localized: "Now")
             : absoluteTimestamp(event.at)
-        return "\(prefix)  ·  \(event.countryName) · \(event.city)  ·  \(event.ip)"
+        return "\(prefix)  ·  \(locationText(for: event))  ·  \(event.ip)"
+    }
+
+    /// Country + city display string, safe for `event.city == nil`
+    /// (city-state egresses like HK / SG carry no city — drop the
+    /// " · city" suffix instead of rendering "Optional(\"…\")").
+    private func locationText(for event: IPChangeEvent) -> String {
+        if let city = event.city, !city.isEmpty {
+            return "\(event.countryName) · \(city)"
+        }
+        return event.countryName
     }
 
     // MARK: Observation

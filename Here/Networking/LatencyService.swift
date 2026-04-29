@@ -1,7 +1,14 @@
 import Foundation
 
 actor LatencyService {
-    private let session: URLSession
+    /// Lazily-built session. We `invalidateAndCancel` it on
+    /// network-plane changes (`rebuildSession()`) so keep-alive
+    /// connections from the previous proxy state can't ride into
+    /// the new state — same defensive pattern as `IPWhoIsProvider`'s
+    /// per-fetch session creation, just at a coarser granularity
+    /// here because per-probe rebuild would be wasteful for
+    /// 5 s tick latency probing.
+    private var session: URLSession
     private var samples: [LatencySample] = []
     private var capacity: Int
     private var currentTarget: URL?
@@ -9,16 +16,38 @@ actor LatencyService {
     private var inflight: Task<Void, Never>?
 
     init(capacity: Int = 30, target: URL? = LatencyProbeTarget.googleGenerate.presetURL) {
-        let config = URLSessionConfiguration.ephemeral
+        self.session = Self.makeSession()
+        self.capacity = max(1, capacity)
+        self.currentTarget = target
+    }
+
+    /// Tear down and re-create the URLSession. Call after a network-
+    /// plane change (interface switch / proxy toggle / reachability
+    /// recovery) so the next probe lands on a fresh connection that
+    /// reflects the current routing.
+    func rebuildSession() {
+        session.invalidateAndCancel()
+        session = Self.makeSession()
+    }
+
+    /// `.default` (not `.ephemeral`) — inherits the user's system
+    /// proxy so the probe times the *perceived* path, same one the
+    /// popover IP comes from. `.ephemeral` would silently bypass
+    /// the proxy and report direct-link latency, contradicting
+    /// what the user sees in the IP card.
+    private static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 5
         config.waitsForConnectivity = false
         config.httpAdditionalHeaders = [
-            "User-Agent": IPGuideProvider.userAgent
+            "User-Agent": AppUserAgent.value
         ]
-        self.session = URLSession(configuration: config)
-        self.capacity = max(1, capacity)
-        self.currentTarget = target
+        return URLSession(configuration: config)
     }
 
     nonisolated func stream() -> AsyncStream<[LatencySample]> {

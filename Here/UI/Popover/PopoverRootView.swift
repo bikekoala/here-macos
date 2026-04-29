@@ -40,32 +40,41 @@ struct PopoverRootView: View {
             .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
     }
 
+    /// Render with **stable view identity** across state transitions.
+    ///
+    /// We deliberately do NOT use a `switch state { … }` here, even
+    /// though that reads more naturally. SwiftUI treats each `case`
+    /// of a switch as a structurally distinct branch — transitioning
+    /// from `.loaded` to `.loading(cached:)` (and back) destroys the
+    /// active branch's child views and creates the other branch's
+    /// fresh, even though both branches happen to render the same
+    /// `loadedStack(model:)`. Every `.task`-bound `@State` in
+    /// `ThroughputCard`, `LatencyCard`, `HistoryCard`, … resets to
+    /// its initial empty value, the cards render shorter for one
+    /// frame until `observe()` re-reads the stream, then snap back
+    /// — visible to the user as the popover bottom growing-and-
+    /// shrinking on every refresh.
+    ///
+    /// Replacing the switch with a single `if let model = state.model`
+    /// puts both `.loaded` and `.loading(cached:)` on the same view-
+    /// tree branch. Child identities are preserved across the
+    /// transition; `@State` survives; the popover stops jittering.
     @ViewBuilder
     private var content: some View {
-        switch state {
-        case .idle:
-            loadingPlaceholder
-        case .loading(let cached):
-            if let cached {
-                loadedStack(model: cached)
-            } else {
-                loadingPlaceholder
-            }
-        case .loaded(let model, _):
-            loadedStack(model: model)
-        case .error(let error, let cached, _):
-            if let cached {
-                // Banner on its own row above the stack rather than an
-                // overlay — the overlay version sat on top of the hero
-                // header and collided with the country name (truncated
-                // "Unite…" under the pill, misaligned icon).
-                VStack(alignment: .leading, spacing: 10) {
+        if let model = state.model {
+            VStack(alignment: .leading, spacing: 10) {
+                if case .error(let error, _, _) = state {
+                    // Banner above the stack rather than as an
+                    // overlay — the overlay version sat on top of the
+                    // hero header and collided with the country name.
                     offlineBanner(error)
-                    loadedStack(model: cached)
                 }
-            } else {
-                errorView(error)
+                loadedStack(model: model)
             }
+        } else if case .error(let error, _, _) = state {
+            errorView(error)
+        } else {
+            loadingPlaceholder
         }
     }
 
@@ -113,7 +122,15 @@ struct PopoverRootView: View {
             Text(error.userDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                // Constrain to a single line — the message is meant
+                // to be a glanceable banner above the popover, not a
+                // text block. Long upstream errors (URLError's
+                // `localizedDescription` can run 80+ chars) get
+                // ellipsized; the full string remains accessible
+                // via the tooltip below.
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(error.userDescription)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
@@ -125,7 +142,7 @@ struct PopoverRootView: View {
     @ViewBuilder
     private func errorView(_ error: IPServiceError) -> some View {
         ContentUnavailableView {
-            Label(String(localized: "Can't reach ip.guide"), systemImage: "wifi.slash")
+            Label(String(localized: "Can't reach ipwho.is"), systemImage: "wifi.slash")
         } description: {
             Text(error.userDescription)
         } actions: {

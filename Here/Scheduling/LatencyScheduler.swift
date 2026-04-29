@@ -78,6 +78,13 @@ final class LatencyScheduler {
                 guard let self else { return }
                 switch event {
                 case .becameReachable, .interfaceChanged, .pathChanged:
+                    // Tear down the long-lived URLSession before the
+                    // next probe so any keep-alive connections from
+                    // the *previous* network plane / proxy state get
+                    // discarded. Otherwise the first probe after a
+                    // proxy toggle silently rides a stale connection
+                    // and reports the wrong path's latency.
+                    await service.rebuildSession()
                     try? await Task.sleep(for: .seconds(1))
                     await service.probe()
                 case .becameUnreachable:

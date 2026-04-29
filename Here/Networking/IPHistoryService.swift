@@ -4,18 +4,33 @@ import Foundation
 /// list for the History card.
 ///
 /// Storage: `~/…/Application Support/Here/ip_history.json` (sandbox
-/// container for the signed bundle). Capped at `maxEvents` events; oldest
-/// entries are trimmed on append.
+/// container for the signed bundle).
+///
+/// Two-axis retention:
+/// - **Count cap** (`maxEvents`): the chain visualization shows the last
+///   5; we keep up to 50 in memory / on disk so users can scroll back
+///   if a future UI iteration exposes them. Heavy users rotate out
+///   old entries via this.
+/// - **Age cap** (`maxAge`): events older than 90 days are dropped on
+///   load and on every append. Without this, a light user with sparse
+///   history (few changes per year) accumulates events from years ago
+///   that aren't useful context. Heavy users hit the count cap first
+///   so they never feel the age cap.
 actor IPHistoryService {
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let maxEvents: Int
+    private let maxAge: TimeInterval
 
     private var events: [IPChangeEvent]
     private var continuations: [UUID: AsyncStream<[IPChangeEvent]>.Continuation] = [:]
 
-    init(fileURL: URL? = nil, maxEvents: Int = 50) {
+    init(
+        fileURL: URL? = nil,
+        maxEvents: Int = 50,
+        maxAge: TimeInterval = 90 * 24 * 3600
+    ) {
         let url = fileURL ?? Self.defaultFileURL()
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -27,7 +42,14 @@ actor IPHistoryService {
         self.encoder = enc
         self.decoder = dec
         self.maxEvents = maxEvents
-        self.events = Self.loadEvents(from: url, decoder: dec)
+        self.maxAge = maxAge
+        let loaded = Self.loadEvents(from: url, decoder: dec)
+        self.events = Self.trim(
+            loaded,
+            maxEvents: maxEvents,
+            maxAge: maxAge,
+            now: Date()
+        )
     }
 
     nonisolated func stream() -> AsyncStream<[IPChangeEvent]> {
@@ -51,11 +73,26 @@ actor IPHistoryService {
         if let last = events.last, last.ip == model.ip { return }
         let event = IPChangeEvent.from(model)
         events.append(event)
-        if events.count > maxEvents {
-            events.removeFirst(events.count - maxEvents)
-        }
+        events = Self.trim(events, maxEvents: maxEvents, maxAge: maxAge, now: Date())
         saveToDisk()
         emit()
+    }
+
+    /// Drop events older than `maxAge` then trim to the most recent
+    /// `maxEvents`. Pure / static so the same logic runs on cold-load
+    /// (init) and on append (`record`).
+    private static func trim(
+        _ events: [IPChangeEvent],
+        maxEvents: Int,
+        maxAge: TimeInterval,
+        now: Date
+    ) -> [IPChangeEvent] {
+        let cutoff = now.addingTimeInterval(-maxAge)
+        var fresh = events.filter { $0.at >= cutoff }
+        if fresh.count > maxEvents {
+            fresh.removeFirst(fresh.count - maxEvents)
+        }
+        return fresh
     }
 
     func clear() {

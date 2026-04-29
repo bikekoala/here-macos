@@ -1,0 +1,37 @@
+{
+  "ip": "45.82.246.98",
+  "success": true,
+  "type": "IPv4",
+  "continent": "Asia",
+  "continent_code": "AS",
+  "country": "Republic of Korea",
+  "country_code": "KR",
+  "region": "",
+  "region_code": "",
+  "city": "Seoul",
+  "latitude": 37.566535,
+  "longitude": 126.9779692,
+  "is_eu": false,
+  "postal": "04523",
+  "calling_code": "82",
+  "capital": "Seoul",
+  "borders": "KP",
+  "flag": {
+    "img": "https://cdn.ipwhois.io/flags/kr.svg",
+    "emoji": "🇰🇷",
+    "emoji_unicode": "U+1F1F0 U+1F1F7"
+  },
+  "connection": {
+    "asn": 209847,
+    "org": "Worktitans B.V.",
+    "isp": "Worktitans B.V.",
+    "domain": "the.hosting"
+  },
+  "timezone": {
+    "id": "Asia/Seoul",
+    "abbr": "KST",
+    "is_dst": false,
+    "offset": 32400,
+    "utc": "+09:00"
+  }
+}

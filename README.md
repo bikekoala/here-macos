@@ -10,7 +10,7 @@ A tiny macOS menu bar app that answers that question, always. Flip a VPN, hop Wi
 
 ## The pill
 
-A rounded pill in your menu bar: flag + region code. Border goes **red** the moment the latency probe says the network's actually broken. When the egress can't be verified (airplane mode, ip.guide unreachable), the pill flips to a **random flag + `OO`** — an honest "I don't know" instead of a stale lie.
+A rounded pill in your menu bar: flag + region code. Border goes **red** the moment the latency probe says the network's actually broken. When the egress can't be verified (airplane mode, IP service unreachable), the pill flips to a **random flag + `OO`** — an honest "I don't know" instead of a stale lie.
 
 Click for the popover:
 
@@ -49,7 +49,7 @@ xcodebuild -project Here.xcodeproj -scheme Here test
 
 ## Credits
 
-- IP + location data from [**ip.guide**](https://ip.guide/) — free, unauth, one JSON call. Thank you.
+- IP + location data from [**ipwho.is**](https://ipwho.is/) — free, no auth, one JSON call. Thank you. (Earlier versions used ip.guide; switched in v0.26.0 after consistent VPN-egress mislabelling.)
 - Flag art from [**flagcdn.com**](https://flagcdn.com/) — rectangular PNGs, public-domain.
 
 Architecture, conventions, and gotchas live in [CLAUDE.md](CLAUDE.md).

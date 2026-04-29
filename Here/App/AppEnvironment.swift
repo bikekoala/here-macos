@@ -6,7 +6,6 @@ final class AppEnvironment {
     let cache: IPCache
     let networkMonitor: NetworkMonitor
     let sleepWakeObserver: SleepWakeObserver
-    let systemNetworkObserver: SystemNetworkObserver
     let ipService: IPService
     let regionMapper: RegionMapper
     let latencyService: LatencyService
@@ -26,9 +25,8 @@ final class AppEnvironment {
         let settings = SettingsStore()
         let networkMonitor = NetworkMonitor()
         let sleepWakeObserver = SleepWakeObserver()
-        let systemNetworkObserver = SystemNetworkObserver()
         let regionMapper = RegionMapper()
-        let ipService = IPService(provider: IPGuideProvider(), cache: cache)
+        let ipService = IPService(provider: IPWhoIsProvider(), cache: cache)
         let latencyService = LatencyService(
             capacity: settings.latencySlotCount,
             target: settings.latencyTargetURL
@@ -37,10 +35,8 @@ final class AppEnvironment {
         let throughputService = ThroughputService()
         let scheduler = RefreshScheduler(
             ipService: ipService,
-            settings: settings,
             networkMonitor: networkMonitor,
-            sleepWakeObserver: sleepWakeObserver,
-            systemNetworkObserver: systemNetworkObserver
+            sleepWakeObserver: sleepWakeObserver
         )
         let latencyScheduler = LatencyScheduler(
             service: latencyService,
@@ -54,7 +50,6 @@ final class AppEnvironment {
         self.settings = settings
         self.networkMonitor = networkMonitor
         self.sleepWakeObserver = sleepWakeObserver
-        self.systemNetworkObserver = systemNetworkObserver
         self.regionMapper = regionMapper
         self.ipService = ipService
         self.latencyService = latencyService
@@ -69,11 +64,13 @@ final class AppEnvironment {
     func start() {
         networkMonitor.start()
         sleepWakeObserver.start()
-        systemNetworkObserver.start()
         scheduler.start()
         latencyScheduler.start()
         startStateObservation()
-        Task { await ipService.refresh() }
+        // Cold-start refresh: silent so the popover doesn't blur its
+        // cached snapshot on first opens; if there's no cache the UI
+        // shows its `.idle` placeholder anyway, also silently.
+        Task { await ipService.refresh(silent: true) }
     }
 
     @MainActor
@@ -82,7 +79,6 @@ final class AppEnvironment {
         stateObserverTask = nil
         scheduler.stop()
         latencyScheduler.stop()
-        systemNetworkObserver.stop()
         sleepWakeObserver.stop()
         networkMonitor.stop()
     }

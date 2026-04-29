@@ -1,0 +1,37 @@
+{
+  "ip": "203.0.113.42",
+  "success": true,
+  "type": "IPv4",
+  "continent": "Asia",
+  "continent_code": "AS",
+  "country": "Hong Kong",
+  "country_code": "HK",
+  "region": "",
+  "region_code": "",
+  "city": "",
+  "latitude": 22.3193,
+  "longitude": 114.1694,
+  "is_eu": false,
+  "postal": "",
+  "calling_code": "852",
+  "capital": "Hong Kong",
+  "borders": "CN",
+  "flag": {
+    "img": "https://cdn.ipwhois.io/flags/hk.svg",
+    "emoji": "🇭🇰",
+    "emoji_unicode": "U+1F1ED U+1F1F0"
+  },
+  "connection": {
+    "asn": 4515,
+    "org": "Example HK ISP",
+    "isp": "Example HK ISP",
+    "domain": "example.hk"
+  },
+  "timezone": {
+    "id": "Asia/Hong_Kong",
+    "abbr": "HKT",
+    "is_dst": false,
+    "offset": 28800,
+    "utc": "+08:00"
+  }
+}

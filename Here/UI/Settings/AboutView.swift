@@ -28,32 +28,17 @@ struct AboutView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
 
-            Text(String(localized: "Data provided by ip.guide"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 16) {
-                Button {
-                    if let url = URL(string: "https://ip.guide") {
-                        openURL(url)
-                    }
-                } label: {
-                    Label("ip.guide", systemImage: "globe")
+            Button {
+                if let url = URL(string: "https://github.com/bikekoala/here-macos") {
+                    openURL(url)
                 }
-                .buttonStyle(.link)
-                .pointerStyle(.link)
-
-                Button {
-                    if let url = URL(string: "https://github.com/bikekoala/here-macos") {
-                        openURL(url)
-                    }
-                } label: {
-                    Label(String(localized: "Source on GitHub"), systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                .buttonStyle(.link)
-                .pointerStyle(.link)
+            } label: {
+                Label(String(localized: "Source on GitHub"), systemImage: "chevron.left.forwardslash.chevron.right")
             }
+            .buttonStyle(.link)
+            .pointerStyle(.link)
             .font(.caption)
+            .padding(.top, 4)
 
             Spacer()
         }

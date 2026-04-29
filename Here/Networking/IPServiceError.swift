@@ -13,13 +13,16 @@ enum IPServiceError: Error, Sendable, Equatable {
         case .offline:
             String(localized: "No network connection.")
         case .timeout:
-            String(localized: "The request to ip.guide timed out.")
+            String(localized: "The request to ipwho.is timed out.")
         case .http(let code):
-            String(localized: "ip.guide returned an error (\(code)).")
+            String(localized: "ipwho.is returned an error (\(code)).")
         case .decoding:
-            String(localized: "Got an unexpected response from ip.guide.")
+            String(localized: "Got an unexpected response from ipwho.is.")
         case .transport(let msg):
-            String(localized: "Network error: \(msg).")
+            // No trailing period — `URLError.localizedDescription`
+            // already ends in "." so appending another produces
+            // "fail..".
+            String(localized: "Network error: \(msg)")
         case .cancelled:
             String(localized: "Request cancelled.")
         }

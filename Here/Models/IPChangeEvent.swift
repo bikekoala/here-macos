@@ -8,7 +8,10 @@ struct IPChangeEvent: Codable, Sendable, Equatable, Identifiable {
     let ip: String
     let countryCode: String    // uppercase ISO-alpha-2
     let countryName: String
-    let city: String
+    // Optional: city-state egresses (HK, SG, etc.) carry no city.
+    // Codable round-trips fine with old persisted entries that have
+    // a string here — non-null strings decode into `String?` cleanly.
+    let city: String?
     let asnLabel: String
 
     init(
@@ -17,7 +20,7 @@ struct IPChangeEvent: Codable, Sendable, Equatable, Identifiable {
         ip: String,
         countryCode: String,
         countryName: String,
-        city: String,
+        city: String?,
         asnLabel: String
     ) {
         self.id = id

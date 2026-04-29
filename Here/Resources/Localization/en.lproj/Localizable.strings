@@ -9,13 +9,6 @@
 "Text (e.g. US)" = "Text (e.g. US)";
 "Flag (e.g. 🇺🇸)" = "Flag (e.g. 🇺🇸)";
 
-/* Refresh intervals */
-"Every minute" = "Every minute";
-"Every 5 minutes" = "Every 5 minutes";
-"Every 10 minutes" = "Every 10 minutes";
-"Every 30 minutes" = "Every 30 minutes";
-"Every hour" = "Every hour";
-
 /* Status bar menu */
 "Refresh" = "Refresh";
 "Refresh now" = "Refresh now";
@@ -29,8 +22,6 @@
 "Modules" = "Modules";
 "About" = "About";
 "Launch at login" = "Launch at login";
-"Auto-refresh on network change" = "Auto-refresh on network change";
-"Also refresh when WiFi hops, the system proxy toggles, or the network path otherwise shifts." = "Also refresh when WiFi hops, the system proxy toggles, or the network path otherwise shifts.";
 "What to show" = "What to show";
 "Status bar shows" = "Status bar shows";
 "Country style" = "Country style";
@@ -73,7 +64,7 @@
 "Coords" = "Coords";
 "Timezone" = "Timezone";
 "Open in Maps" = "Open in Maps";
-"Open ip.guide in browser" = "Open ip.guide in browser";
+"Open ip-api.com in browser" = "Open ip-api.com in browser";
 
 /* Popover — module labels + icons */
 "Location" = "Location";
@@ -110,15 +101,13 @@
 "Loading…" = "Loading…";
 "Updated %@" = "Updated %@";
 "Data may be out of date" = "Data may be out of date";
-"Can't reach ip.guide" = "Can't reach ip.guide";
+"Can't reach ipwho.is" = "Can't reach ipwho.is";
 "Try again" = "Try again";
-"Data provided by ip.guide" = "Data provided by ip.guide";
-"Visit ip.guide" = "Visit ip.guide";
 
 /* IPService error messages */
 "No network connection." = "No network connection.";
-"The request to ip.guide timed out." = "The request to ip.guide timed out.";
-"ip.guide returned an error (%d)." = "ip.guide returned an error (%d).";
-"Got an unexpected response from ip.guide." = "Got an unexpected response from ip.guide.";
-"Network error: %@." = "Network error: %@.";
+"The request to ipwho.is timed out." = "The request to ipwho.is timed out.";
+"ipwho.is returned an error (%d)." = "ipwho.is returned an error (%d).";
+"Got an unexpected response from ipwho.is." = "Got an unexpected response from ipwho.is.";
+"Network error: %@" = "Network error: %@";
 "Request cancelled." = "Request cancelled.";

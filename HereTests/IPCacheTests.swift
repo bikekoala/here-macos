@@ -17,12 +17,18 @@ struct IPCacheTests {
         CachedIP(
             model: .init(
                 ip: "1.2.3.4",
+                countryAlpha2: "US",
                 network: .init(
                     cidr: "1.2.3.0/24",
-                    hosts: .init(start: "1.2.3.1", end: "1.2.3.254"),
-                    autonomousSystem: .init(asn: 1, name: "X", organization: "X", country: "US", rir: "ARIN")
+                    autonomousSystem: .init(
+                        asn: 1, name: "X", organization: "X",
+                        country: "US", rir: "ARIN"
+                    )
                 ),
-                location: .init(city: "Here", country: "United States", timezone: "UTC", latitude: 0, longitude: 0)
+                location: .init(
+                    city: "Here", country: "United States",
+                    timezone: "UTC", latitude: 0, longitude: 0
+                )
             ),
             fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )

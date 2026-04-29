@@ -7,8 +7,16 @@ actor IPService {
 
     private var inflight: Task<IPDataModel, Error>?
     private var lastSuccessAt: Date?
+    private var lastDiskWriteAt: Date?
     private var currentState: IPState
     private var continuations: [UUID: AsyncStream<IPState>.Continuation] = [:]
+    /// Maximum staleness for the on-disk `fetchedAt`. We dedup
+    /// writes when the model is unchanged (the common case at 5 s
+    /// polling), but force a save every `cacheRefreshInterval` to
+    /// keep the timestamp honest — otherwise on next launch the
+    /// popover would show "Updated 3 h ago" for data we actually
+    /// just re-verified.
+    private let cacheRefreshInterval: TimeInterval = 300
 
     init(provider: IPProvider, cache: IPCache) {
         self.provider = provider
@@ -20,6 +28,20 @@ actor IPService {
         }
     }
 
+    /// Subscribe to IP state changes.
+    ///
+    /// Lifecycle: each subscriber gets a unique id slot in the
+    /// `continuations` dict. On the consumer side, when the
+    /// awaiting Task is cancelled or the consumer breaks out of
+    /// the for-await loop, the AsyncStream calls `onTermination`,
+    /// which schedules an unregister on the actor. Setting
+    /// `onTermination` synchronously inside the init means
+    /// termination handling is in place before any value is
+    /// produced — a subscriber can't "miss" cleanup. The dict
+    /// never accumulates dead entries in normal operation.
+    /// (Catastrophic shutdown would orphan entries, but the
+    /// actor itself dies with the process so this is bounded
+    /// by app lifetime.)
     nonisolated func stateStream() -> AsyncStream<IPState> {
         AsyncStream { continuation in
             let id = UUID()
@@ -66,8 +88,22 @@ actor IPService {
         emit(.loading(cached: currentState.model))
     }
 
+    /// Trigger an IP lookup.
+    ///
+    /// - Parameters:
+    ///   - force: bypass the 5-second `minimumGap` between successful
+    ///     fetches. Use for user-driven refreshes and one-shot
+    ///     network-event reactions where stale-throttling would feel
+    ///     wrong.
+    ///   - silent: skip the `.loading(cached:)` intermediate emission.
+    ///     A silent fetch goes directly from the prior state to the
+    ///     final `.loaded` / `.error` — no UI loading flicker, no
+    ///     random-flag widget reroll. Used by the periodic loop and
+    ///     network-event handlers; manual refresh calls leave this
+    ///     `false` so the popover's spinner-and-blur overlay still
+    ///     fires as user-visible feedback.
     @discardableResult
-    func refresh(force: Bool = false) async -> IPState {
+    func refresh(force: Bool = false, silent: Bool = false) async -> IPState {
         if let last = lastSuccessAt, !force, Date().timeIntervalSince(last) < minimumGap {
             return currentState
         }
@@ -77,13 +113,15 @@ actor IPService {
             return currentState
         }
 
-        emit(.loading(cached: currentState.model))
+        if !silent {
+            emit(.loading(cached: currentState.model))
+        }
 
         // Single attempt. Previously this retried up to 3× with exponential
         // backoff, which made a failure sequence hammer an unreachable host
-        // for ~45 s — noisy when the user is on a China egress that can't
-        // see ip.guide. If the first try fails, we just drop into `.error`
-        // and wait for the next scheduler/network-event trigger.
+        // for ~45 s — noisy when the user is on a network that can't reach
+        // the upstream provider. If the first try fails, we just drop into
+        // `.error` and wait for the next scheduler/network-event trigger.
         let task = Task<IPDataModel, Error> { [provider] in
             try await provider.fetch()
         }
@@ -94,7 +132,14 @@ actor IPService {
         do {
             let model = try await task.value
             let fetchedAt = Date()
-            cache.save(.init(model: model, fetchedAt: fetchedAt))
+            let modelChanged = model != currentState.model
+            let cacheStale = lastDiskWriteAt
+                .map { fetchedAt.timeIntervalSince($0) >= cacheRefreshInterval }
+                ?? true
+            if modelChanged || cacheStale {
+                cache.save(.init(model: model, fetchedAt: fetchedAt))
+                lastDiskWriteAt = fetchedAt
+            }
             lastSuccessAt = fetchedAt
             emit(.loaded(model, fetchedAt: fetchedAt))
         } catch {

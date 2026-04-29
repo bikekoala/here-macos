@@ -7,7 +7,13 @@ import Foundation
 /// A URLSession delegate (`SpeedProbe`) watches `didReceive(data:)`, which
 /// is a reliable real-time throughput signal because bytes arrive from the
 /// peer across the wire. Delegate-reported `Content-Length` drives the
-/// progress bar; the final Mbps is `totalBytes * 8 / elapsed / 1e6`.
+/// progress bar; the final Mbps is `bytes * 8 / (now - firstByteAt) / 1e6`
+/// — the timer starts when the **first body byte** lands, not at request
+/// build time, so DNS / TCP / TLS / request-send / response-headers time
+/// is excluded from the denominator. (A pure "total elapsed" denominator
+/// like `wget` reports, where handshake counts as part of "transfer time",
+/// produces 30-50% under-reporting on fat pipes against tools like
+/// fast.com that measure sustained throughput.)
 ///
 /// Upload measurement was removed in v0.21.0 — it didn't fit the
 /// "grab-a-static-file-from-the-nearest-CDN" model and the
@@ -195,13 +201,32 @@ actor ThroughputService {
 /// accurate regardless.
 ///
 /// Throttle ~5 Hz so we don't hammer the SwiftUI update loop on fast
-/// pipes. `@unchecked Sendable` is safe because all mutable state sits
-/// behind an `NSLock` and delegate calls land on URLSession's private
-/// serial delegate queue.
+/// pipes.
+///
+/// **Thread safety**: `delegateQueue: nil` in the URLSession init
+/// (see `init` below) means URLSession dispatches all delegate
+/// callbacks on its own private serial queue. Every place we read
+/// or write the mutable instance state (`bytes`, `firstByteAt`,
+/// `expectedBytes`, `lastEmit`, `finished`) is called from one of
+/// those delegate methods, so the state is **already serialised
+/// by URLSession** — we used to wrap each access in an `NSLock`
+/// but that was redundant paranoia. Removing it shortens hot paths.
+/// The captured `onProgress` / `onComplete` closures are immutable
+/// `@Sendable` and called from the same serial queue. The
+/// `@unchecked Sendable` is honest about the situation: Swift's
+/// type system can't know about URLSession's queue invariant.
 private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var session: URLSession!
-    private let startedAt = Date()
-    private let lock = NSLock()
+    /// Wall-clock at the moment the **first body byte** arrived.
+    /// `nil` until the first `didReceive(data:)` callback. Using
+    /// first-byte (instead of init time) means we don't penalise
+    /// the reported Mbps with DNS resolution + TCP handshake +
+    /// TLS handshake + request-send time + response-headers time
+    /// — none of which are throughput, all of which used to drag
+    /// the average down toward "wget total-time mode" instead of
+    /// "fast.com sustained-throughput mode" (typical 30–50% under-
+    /// reporting on fat pipes).
+    private var firstByteAt: Date?
     private var bytes: Int64 = 0
     private var expectedBytes: Int64 = 100 * 1024 * 1024  // fallback
     private var lastEmit = Date.distantPast
@@ -216,11 +241,21 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
         self.onProgress = onProgress
         self.onComplete = onComplete
         super.init()
-        let config = URLSessionConfiguration.ephemeral
+        // `URLSessionConfiguration.default` (not `.ephemeral`) so the
+        // download inherits the user's system proxy — the throughput
+        // we report is the path the popover's IP came in over, not
+        // a back-channel that silently bypasses Clash / Surge / etc.
+        // Latency, IP service, and throughput are now consistent on
+        // this point.
+        let config = URLSessionConfiguration.default
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 120
         config.waitsForConnectivity = false
-        config.httpAdditionalHeaders = ["User-Agent": IPGuideProvider.userAgent]
+        config.httpAdditionalHeaders = ["User-Agent": AppUserAgent.value]
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
@@ -238,9 +273,7 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
     ) {
         let reported = response.expectedContentLength
         if reported > 0 {
-            lock.lock()
             expectedBytes = reported
-            lock.unlock()
         }
         completionHandler(.allow)
     }
@@ -251,12 +284,15 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
-        lock.lock()
+        // Stamp first-byte time on the very first chunk. The bytes
+        // in this chunk are still counted — the resulting tiny bias
+        // (a few KB attributed to ~0 elapsed) is negligible against
+        // a 100 MB total.
+        if firstByteAt == nil {
+            firstByteAt = Date()
+        }
         bytes += Int64(data.count)
-        let b = bytes
-        let expected = expectedBytes
-        lock.unlock()
-        maybeEmit(bytes: b, expected: expected)
+        maybeEmit(bytes: bytes, expected: expectedBytes, start: firstByteAt)
     }
 
     func urlSession(
@@ -264,11 +300,10 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        lock.lock()
-        guard !finished else { lock.unlock(); return }
+        guard !finished else { return }
         finished = true
         let b = bytes
-        lock.unlock()
+        let start = firstByteAt
 
         session.finishTasksAndInvalidate()
 
@@ -279,27 +314,35 @@ private final class SpeedProbe: NSObject, URLSessionDataDelegate, @unchecked Sen
             onComplete(.failure(error))
             return
         }
-        let elapsed = Date().timeIntervalSince(startedAt)
-        guard elapsed > 0, b > 0 else {
+        // No body bytes ever arrived → there's no throughput to
+        // report. (Could happen on a redirect-to-empty, server
+        // returning 204, …) Surface as zero-byte rather than a
+        // misleading divide-by-near-zero number.
+        guard let start, b > 0 else {
+            onComplete(.failure(URLError(.zeroByteResource)))
+            return
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        guard elapsed > 0 else {
             onComplete(.failure(URLError(.zeroByteResource)))
             return
         }
         onComplete(.success(Double(b) * 8 / elapsed / 1_000_000))
     }
 
-    /// Throttle progress emits to ~5 Hz; skip the first ~150 ms where
-    /// TCP/TLS handshake dominates the elapsed number.
-    private func maybeEmit(bytes: Int64, expected: Int64) {
-        lock.lock()
+    /// Throttle progress emits to ~5 Hz; skip the first ~150 ms
+    /// after the first byte where the elapsed denominator is too
+    /// small for a stable readout. `start` is the first-byte
+    /// timestamp passed in from the data callback (always non-nil
+    /// here since we only call this from inside a `didReceive(data:)`
+    /// after stamping it).
+    private func maybeEmit(bytes: Int64, expected: Int64, start: Date?) {
+        guard let start else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastEmit) > 0.2 else {
-            lock.unlock()
-            return
-        }
+        guard now.timeIntervalSince(lastEmit) > 0.2 else { return }
         lastEmit = now
-        lock.unlock()
 
-        let elapsed = now.timeIntervalSince(startedAt)
+        let elapsed = now.timeIntervalSince(start)
         guard elapsed > 0.15 else { return }
         let mbps = Double(bytes) * 8 / elapsed / 1_000_000
         let progress = min(1.0, max(0.0, Double(bytes) / Double(max(1, expected))))

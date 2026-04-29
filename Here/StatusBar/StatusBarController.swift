@@ -15,6 +15,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var settingsTask: Task<Void, Never>?
     private var globalMouseMonitor: Any?
     private var resignObserver: NSObjectProtocol?
+    private var popoverResignKeyObserver: NSObjectProtocol?
     private var appearanceObserver: NSObjectProtocol?
     private var closeRequestObserver: NSObjectProtocol?
     private var latestState: IPState = .idle
@@ -26,6 +27,17 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     /// all renders while in unknown, cleared on return to `.loaded` so
     /// the next unknown state rolls a fresh random flag.
     private var currentUnknownFlag: String?
+
+    /// Invisible borderless window placed at the menu-bar widget's
+    /// screen frame at popover-open time, used as NSPopover's
+    /// positioning view's host. NSPopover tracks the positioning
+    /// view's frame and slides itself when the menu-bar widget
+    /// reflows. Anchoring to a view inside *this* window — which is
+    /// independent of the menu bar and never moves — keeps the
+    /// popover stationary for the rest of the session. Re-opened
+    /// fresh on every `openPopover()`, so a new session still
+    /// centres on the widget's then-current position.
+    private var anchorWindow: NSWindow?
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -89,13 +101,103 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// Open the popover, anchored to an **invisible standalone
+    /// NSWindow** placed at the menu-bar widget's current screen
+    /// frame.
+    ///
+    /// ### Why an external anchor window
+    /// NSPopover with `popover.show(relativeTo: button.bounds, of: button, ...)`
+    /// makes the popover track the positioning view's frame. The
+    /// menu-bar button's intrinsic width changes whenever the
+    /// rendered flag image changes width (different country, render
+    /// state) — and AppKit silently slides the popover sideways to
+    /// keep it centred on the new midpoint. To users that reads as
+    /// "the popover drifted on its own".
+    ///
+    /// We sidestep this by giving NSPopover a **stable** positioning
+    /// view: a 1x button-sized NSView inside a borderless invisible
+    /// window placed at the widget's screen frame at open-time. The
+    /// invisible window doesn't respond to layout changes, so the
+    /// popover stays put for the rest of the session. Re-opening
+    /// recaptures relative to the widget's then-current frame, so
+    /// each fresh open feels like a normal popover open.
+    ///
+    /// ### Compatibility caveats — review on every macOS major bump
+    /// 1. **NSPopover positioning behaviour**: this code assumes the
+    ///    popover anchors to the positioning view's frame in screen
+    ///    coordinates and *doesn't* re-query if the view's frame is
+    ///    static. If Apple changes NSPopover to e.g. use the
+    ///    positioning view's `window.frame` directly, our hidden
+    ///    window's level / orderFront state could matter.
+    /// 2. **Window level matters for vertical positioning**:
+    ///    NSPopover treats positioning views in **`.statusBar`-level**
+    ///    windows as "menu-bar attached" — popover renders flush
+    ///    under the bar. Anything below `.statusBar` (e.g. `.normal`)
+    ///    flips it into "detached popover" mode and adds ~30 pt of
+    ///    arrow-padding before the popover body. So the anchor window
+    ///    **must** be `.statusBar`. The window is alpha-0 +
+    ///    `ignoresMouseEvents=true`, so sharing that level with the
+    ///    real menu bar is harmless visually.
+    /// 3. **Status item button frame in screen coordinates**: macOS
+    ///    has historically managed status items in a system-private
+    ///    window. `button.window` is documented to exist for status-
+    ///    bar items but isn't a guaranteed contract. The `guard let
+    ///    buttonWindow = button.window` below is the bail-out path.
+    /// 4. **Popover content vs anchor window**: NSPopover's actual
+    ///    floating window is a separate NSWindow it manages. We only
+    ///    own the anchor; we don't reach into the popover window
+    ///    directly. Any future Apple change there is independent.
+    ///
+    /// Verification on macOS upgrade: open popover, click refresh
+    /// in the popover several times, watch the popover. If it slides
+    /// sideways even one pixel, this whole approach has regressed.
+    /// Backup plan: re-implement the popover as a self-managed
+    /// NSPanel and skip NSPopover entirely.
     private func openPopover() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button,
+              let buttonWindow = button.window else { return }
         let popover = popoverHost.popover
         popoverOpen = true
         NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+
+        let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+        let buttonFrameInScreen = buttonWindow.convertToScreen(buttonFrameInWindow)
+        let anchor = NSWindow(
+            contentRect: buttonFrameInScreen,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        anchor.isOpaque = false
+        anchor.backgroundColor = .clear
+        anchor.hasShadow = false
+        anchor.ignoresMouseEvents = true
+        // `.statusBar` level is required, not just an aesthetic
+        // choice. NSPopover internally treats positioning views in
+        // status-bar-level windows as "menu-bar-attached" — the
+        // popover renders **flush** under the menu bar with the
+        // arrow tucked tight against it. Lowering this to `.normal`
+        // makes NSPopover treat the anchor as an ordinary view and
+        // adds its default detached-popover padding, which surfaces
+        // visually as a 30-ish pt gap between the menu bar and the
+        // popover top. The window is alpha-0 + click-through so
+        // sharing the `.statusBar` level with the real menu bar
+        // doesn't cause any visible interference.
+        anchor.level = .statusBar
+        let anchorContent = NSView(
+            frame: NSRect(origin: .zero, size: buttonFrameInScreen.size)
+        )
+        anchor.contentView = anchorContent
+        anchor.orderFrontRegardless()
+        anchorWindow = anchor
+
+        popover.show(
+            relativeTo: anchorContent.bounds,
+            of: anchorContent,
+            preferredEdge: .minY
+        )
         popover.contentViewController?.view.window?.makeKey()
+
         installDismissMonitors()
         render()
     }
@@ -104,11 +206,33 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         removeDismissMonitors()
         popoverOpen = false
         popoverHost.popover.performClose(nil)
+        anchorWindow?.orderOut(nil)
+        anchorWindow = nil
         render()
     }
 
     // MARK: - Dismiss-on-outside-click (works across displays)
 
+    /// Three signals decide when to dismiss:
+    ///
+    /// 1. **Global mouse monitor** — `addGlobalMonitorForEvents` fires
+    ///    on mouse-downs sent to *other* applications. Catches the
+    ///    common case of clicking on another app's window.
+    /// 2. **App-resign-active** — fires on Cmd-Tab away, lock screen,
+    ///    user activating another app. Belt-and-suspenders for cases
+    ///    where the global monitor's event-routing path doesn't see
+    ///    the click.
+    /// 3. **Popover-window-resign-key** — fires whenever the popover
+    ///    loses key-window status. This is the **catch-all** for
+    ///    edge cases the first two miss: clicks on system menu-bar
+    ///    items (WiFi / battery / Control Center), clicks on
+    ///    Spotlight, clicks on Notification Center, clicks routed
+    ///    through window servers we don't see at the global-monitor
+    ///    level. Any time another window steals focus from the
+    ///    popover, we close.
+    ///
+    /// All three call into the same `closePopover()` which is
+    /// idempotent — duplicate fires are harmless.
     private func installDismissMonitors() {
         removeDismissMonitors()
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -123,6 +247,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.closePopover() }
         }
+        if let popoverWindow = popoverHost.popover.contentViewController?.view.window {
+            popoverResignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: popoverWindow,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.closePopover() }
+            }
+        }
     }
 
     private func removeDismissMonitors() {
@@ -133,6 +266,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         if let observer = resignObserver {
             NotificationCenter.default.removeObserver(observer)
             resignObserver = nil
+        }
+        if let observer = popoverResignKeyObserver {
+            NotificationCenter.default.removeObserver(observer)
+            popoverResignKeyObserver = nil
         }
     }
 
@@ -287,13 +424,35 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         let settings = environment.settings
 
-        // Anything other than a fresh `.loaded` reading goes to the
-        // placeholder pill. During `.loading` we're actively re-checking
-        // the egress and the previous flag may already be stale; during
-        // `.error / .idle` we just don't know. In both cases, silently
-        // continuing to assert the old flag would mislead the user.
-        // Popover still shows cached data + context.
-        guard case .loaded(let model, _) = latestState else {
+        // Decide which model (if any) drives the rendered flag.
+        //
+        // - `.loaded`: real flag, real region.
+        // - `.loading(cached: m)` with a cache: keep showing `m`'s
+        //   flag. A loading state is "we're re-checking" — most
+        //   re-checks succeed and the answer is unchanged, so
+        //   strobing the widget to a random placeholder every
+        //   refresh would produce constant visual noise. The
+        //   manual-refresh path in `IPService` is the only one
+        //   that emits `.loading` now (auto refresh is silent),
+        //   so this branch only fires while the user is actively
+        //   watching the popover anyway.
+        // - `.error(cached: m)`: random flag. The most recent
+        //   fetch failed; the cached `m` may or may not still
+        //   be true, and we'd rather flag the uncertainty loudly
+        //   than silently keep asserting stale info.
+        // - `.idle`, `.loading(cached: nil)`, `.error(cached: nil)`:
+        //   no data we can stand behind → random.
+        let renderModel: IPDataModel?
+        switch latestState {
+        case .loaded(let m, _):
+            renderModel = m
+        case .loading(let cached):
+            renderModel = cached
+        case .error, .idle:
+            renderModel = nil
+        }
+
+        guard let model = renderModel else {
             renderUnknown(on: button)
             return
         }

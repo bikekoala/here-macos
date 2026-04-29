@@ -7,13 +7,22 @@ struct LocationCard: View {
 
     @State private var mapHovering = false
     @State private var networkExpanded = false
+    /// Camera position kept as `@State` so the map actually follows
+    /// `model.coordinate` when the IP changes. We cannot use the
+    /// shorter `Map(initialPosition:)` API — that snapshots the
+    /// camera once at view-mount and ignores subsequent `model`
+    /// updates, which means the map sticks on the previous egress
+    /// (e.g. shows San Jose forever after the popover already
+    /// switched to Cyprus). `position:` takes a binding and follows
+    /// state.
+    @State private var cameraPosition: MapCameraPosition = .automatic
 
-    private var cameraPosition: MapCameraPosition {
-        .region(MKCoordinateRegion(
-            center: model.coordinate,
+    private func region(for coordinate: CLLocationCoordinate2D) -> MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: coordinate,
             latitudinalMeters: 50_000,
             longitudinalMeters: 50_000
-        ))
+        )
     }
 
     var body: some View {
@@ -25,13 +34,19 @@ struct LocationCard: View {
                 networkDisclosure
             }
         }
+        .onAppear { cameraPosition = .region(region(for: model.coordinate)) }
+        // `model` is `Equatable`; this fires whenever the IP changes
+        // (or any other field, but coordinate is what matters here).
+        .onChange(of: model) { _, new in
+            cameraPosition = .region(region(for: new.coordinate))
+        }
     }
 
     // MARK: Map
 
     private var mapView: some View {
-        Map(initialPosition: cameraPosition, interactionModes: []) {
-            Marker(model.location.city, coordinate: model.coordinate)
+        Map(position: $cameraPosition, interactionModes: []) {
+            Marker(model.location.city ?? model.location.country, coordinate: model.coordinate)
                 .tint(.red)
         }
         .mapStyle(.standard(elevation: .flat))
@@ -114,20 +129,28 @@ struct LocationCard: View {
             .pointerStyle(.link)
 
             if networkExpanded {
+                // CIDR / RIR rows are guarded — not every provider
+                // supplies them (ipwho.is omits both, ip.guide-class
+                // providers carry them). Hide the row entirely when
+                // missing rather than rendering an empty value.
                 VStack(alignment: .leading, spacing: 6) {
-                    CopyableRow(label: String(localized: "CIDR"),
-                                value: model.network.cidr,
-                                monospaced: true,
-                                copyable: false)
+                    if let cidr = model.network.cidr {
+                        CopyableRow(label: String(localized: "CIDR"),
+                                    value: cidr,
+                                    monospaced: true,
+                                    copyable: false)
+                    }
                     CopyableRow(label: String(localized: "ASN"),
                                 value: model.asnLabel,
                                 copyable: false)
                     CopyableRow(label: String(localized: "Org"),
                                 value: model.network.autonomousSystem.organization,
                                 copyable: false)
-                    CopyableRow(label: String(localized: "RIR"),
-                                value: model.network.autonomousSystem.rir,
-                                copyable: false)
+                    if let rir = model.network.autonomousSystem.rir {
+                        CopyableRow(label: String(localized: "RIR"),
+                                    value: rir,
+                                    copyable: false)
+                    }
                 }
                 .padding(.top, 2)
             }
@@ -162,7 +185,7 @@ struct LocationCard: View {
     private func openInMaps() {
         let placemark = MKPlacemark(coordinate: model.coordinate)
         let mapItem = MKMapItem(placemark: placemark)
-        mapItem.name = model.location.city
+        mapItem.name = model.location.city ?? model.location.country
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: model.coordinate),
             MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(

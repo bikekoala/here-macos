@@ -14,8 +14,8 @@ import Foundation
 /// being present.
 enum BundledFlags {
     /// 252 alpha-2 codes, covering nearly all of ISO 3166-1 plus a few
-    /// common exonyms (XK for Kosovo, UN, EU) that `ip.guide` occasionally
-    /// emits via its ASN metadata.
+    /// common exonyms (XK for Kosovo, UN, EU) that some IP providers
+    /// occasionally emit via their ASN metadata.
     static let allCodes: [String] = [
         "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR",
         "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE",
